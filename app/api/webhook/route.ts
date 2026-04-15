@@ -1,82 +1,103 @@
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
-// 1. Inicjalizacja Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-03-25.dahlia',
-});
-
-// 2. UWAGA INŻYNIERSKA: Używamy "Service Role Key"!
-// Dlaczego? Kurier ze Stripe to nie jest zalogowany użytkownik w przeglądarce. 
-// Normalnie Supabase zablokowałby mu dostęp. Używamy "klucza admina" (Service Role), 
-// żeby przebić się przez zabezpieczenia (RLS) i na twardo zmienić limit w bazie.
+// 1. Inicjalizacja Admina (Service Role)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! 
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(req: Request) {
-  // Pobieramy surowe dane (list od kuriera) i "podpis" (pieczęć z wosku)
-  const payload = await req.text();
-  const sig = req.headers.get('stripe-signature');
-
-  let event;
-
   try {
-    // 3. WERYFIKACJA: Sprawdzamy pieczęć. 
-    // Zabezpiecza nas to przed hakerami, którzy mogliby wysyłać fałszywe żądania "Daj mi 100 ogłoszeń"
-    event = stripe.webhooks.constructEvent(payload, sig!, process.env.STRIPE_WEBHOOK_SECRET!);
-  } catch (err: any) {
-    console.error('❌ BŁĄD OCHRONY (Fałszywy kurier):', err.message);
-    return NextResponse.json({ error: `Webhook Error: ${err.message}` }, { status: 400 });
-  }
-
-  // 4. Jeśli płatność faktycznie zakończyła się sukcesem...
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
+    // 2. HotPay wysyła dane jako formularz (URLSearchParams), a nie JSON
+    const formData = await req.formData();
     
-    // Wyciągamy naszą ukrytą etykietę z poprzedniego pliku (ID usera i nowy limit)
-    const userId = session.metadata?.supabase_user_id;
-    const newLimit = parseInt(session.metadata?.new_limit || '10');
+    const kwota = formData.get('KWOTA') as string;
+    const id_zamowienia = formData.get('ID_ZAMOWIENIA') as string;
+    const id_platnosci = formData.get('ID_PLATNOSCI') as string;
+    const status = formData.get('STATUS') as string; // SUCCESS lub FAILURE
+    const sekret_uslugi = formData.get('SEKRET') as string;
+    const hash_od_hotpay = formData.get('HASH') as string;
 
-  if (userId) {
-      // Pobieramy flagę, którą wysłaliśmy przed chwilą
-      const updateType = session.metadata?.update_type || 'replace';
+    const haslo_notyfikacji = process.env.HOTPAY_PASSWORD;
+
+    // 3. WERYFIKACJA HASHU (Pieczęć bezpieczeństwa)
+    // Wzór HotPay: SHA256(HASLO_NOTYFIKACJI;KWOTA;ID_ZAMOWIENIA;ID_PLATNOSCI;STATUS;SEKRET)
+    const stringToHash = `${haslo_notyfikacji};${kwota};${id_zamowienia};${id_platnosci};${status};${sekret_uslugi}`;
+    const calculatedHash = crypto.createHash('sha256').update(stringToHash).digest('hex');
+
+    if (calculatedHash !== hash_od_hotpay) {
+      console.error('❌ BŁĄD OCHRONY: Nieprawidłowy Hash od HotPay!');
+      return NextResponse.json({ error: 'Invalid hash' }, { status: 400 });
+    }
+
+    // 4. LOGIKA BIZNESOWA: Jeśli zapłacone...
+    if (status === 'SUCCESS') {
+      console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}, Kwota: ${kwota}`);
+
+      /* UWAGA: W HotPay nie mamy 'metadata'. Informacje o userze musisz 
+         wyciągnąć z ID_ZAMOWIENIA lub z bazy danych. 
+         Załóżmy, że ID_ZAMOWIENIA to ID rekordu w Twojej tabeli 'orders'.
+      */
       
-      console.log(`💰 OTRZYMANO PRZELEW! Typ akcji: ${updateType}`);
+      // A. Pobieramy zamówienie z bazy, żeby wiedzieć kto kupił i co
+      const { data: order, error: orderError } = await supabaseAdmin
+        .from('orders')
+        .select('*')
+        .eq('id', id_zamowienia)
+        .single();
 
-      let finalLimit = newLimit;
-
-      // Jeśli to jest "DODAWANIE" (Kupił 1 sztukę)
-      if (updateType === 'add') {
-        // 1. Sprawdzamy, jaki limit użytkownik ma w tej sekundzie
-        const { data: profile } = await supabaseAdmin
-          .from('profiles')
-          .select('max_active_listings')
-          .eq('id', userId)
-          .single();
-          
-        const currentLimit = profile?.max_active_listings || 2;
-        // 2. Matematyka: Obecny limit + 1 sztuka
-        finalLimit = currentLimit + newLimit; 
+      if (orderError || !order) {
+        // Jeśli nie znaleźliśmy zamówienia po ID, może to był pakiet ogłoszeń?
+        // Tutaj musisz dostosować logikę pod to, jak generujesz ID_ZAMOWIENIA.
+        console.error('❌ Nie znaleziono zamówienia w bazie:', id_zamowienia);
+        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
       }
 
-      console.log(`Ustawiam limit na: ${finalLimit}`);
+      const userId = order.user_id;
+      // Przyjmijmy, że w tabeli orders masz kolumnę 'package_limit' lub podobną
+      const newLimit = order.new_limit || 10; 
+      const updateType = order.update_type || 'replace';
 
-      // 3. Włamujemy się jako Admin i zmieniamy limit
-      const { error } = await supabaseAdmin
-        .from('profiles')
-        .update({ max_active_listings: finalLimit })
-        .eq('id', userId);
+      if (userId) {
+        let finalLimit = newLimit;
 
-      if (error) {
-        console.error('❌ BŁĄD BAZY DANYCH:', error);
-        return NextResponse.json({ error: 'Nie udało się zaktualizować bazy' }, { status: 500 });
+        if (updateType === 'add') {
+          const { data: profile } = await supabaseAdmin
+            .from('profiles')
+            .select('max_active_listings')
+            .eq('id', userId)
+            .single();
+            
+          const currentLimit = profile?.max_active_listings || 2;
+          finalLimit = currentLimit + newLimit; 
+        }
+
+        // B. Aktualizujemy limit użytkownika
+        const { error: updateError } = await supabaseAdmin
+          .from('profiles')
+          .update({ max_active_listings: finalLimit })
+          .eq('id', userId);
+
+        // C. Oznaczamy zamówienie jako opłacone
+        await supabaseAdmin
+          .from('orders')
+          .update({ status: 'paid', hotpay_id: id_platnosci })
+          .eq('id', id_zamowienia);
+
+        if (updateError) {
+          console.error('❌ BŁĄD AKTUALIZACJI PROFILU:', updateError);
+          return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
+        }
       }
     }
-  }
 
-  // Mówimy kurierowi: "Dzięki, odebrałem!" (Inaczej Stripe będzie wysyłał to samo co 5 minut w nieskończoność)
-  return NextResponse.json({ received: true });
+    // HotPay wymaga, aby odpowiedzieć po prostu "OK" lub "YES" (zależnie od dokumentacji, zazwyczaj YES)
+    return new Response('YES', { status: 200 });
+
+  } catch (err: any) {
+    console.error('❌ BŁĄD WEBHOOKA:', err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
 }

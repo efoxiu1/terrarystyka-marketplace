@@ -4,32 +4,35 @@ import crypto from 'crypto';
 export async function POST(req: Request) {
   try {
     const { orderId, amount } = await req.json();
-
     const sekret = process.env.HOTPAY_SECRET;
     const haslo = process.env.HOTPAY_PASSWORD;
 
-    if (!sekret || !haslo) {
-      throw new Error("Brak kluczy HotPay w .env.local");
-    }
-
-    // Parametry transakcji
+    // 1. Gwarantujemy format 0.00
     const kwota = parseFloat(amount).toFixed(2);
-    const nazwa_uslugi = `Zamówienie ${orderId.slice(0, 8)}`;
-    // Tutaj w przyszłości wpiszemy adres powrotu, na razie wracamy na stronę główną
-    const adres_www = 'http://localhost:3000/moje-konto/zamowienia'; 
+    
+    // 2. Maksymalnie upraszczamy nazwę na czas testu
+    const nazwa_uslugi = `Zamowienie_${orderId.slice(0, 5)}`; 
+    const adres_www = `${process.env.NEXT_PUBLIC_SITE_URL}/moje-konto/zamowienia`;
 
-    // 🔥 TWORZENIE PODPISU BEZPIECZEŃSTWA (HASH SHA-256) ZGODNIE Z DOKUMENTACJĄ HOTPAY 🔥
-    // Wzór HotPay: HASLOZUSTAWIEN;KWOTA;NAZWA_USLUGI;ADRES_WWW;ID_ZAMOWIENIA;SEKRET
+    // 3. Budujemy string do hasha - KOLEJNOŚĆ MA ZNACZENIE
+    // HASLO;KWOTA;NAZWA;ADRES;ID;SEKRET
     const stringToHash = `${haslo};${kwota};${nazwa_uslugi};${adres_www};${orderId};${sekret}`;
     const hash = crypto.createHash('sha256').update(stringToHash).digest('hex');
 
-    // Budujemy finalny link do bramki testowej
-    const paymentUrl = `https://platnosc.hotpay.pl/?SEKRET=${sekret}&KWOTA=${kwota}&NAZWA_USLUGI=${encodeURIComponent(nazwa_uslugi)}&ADRES_WWW=${encodeURIComponent(adres_www)}&ID_ZAMOWIENIA=${orderId}&HASH=${hash}`;
+    // 4. Budujemy URL
+    const paymentUrl = new URL('https://platnosc.hotpay.pl/');
+    paymentUrl.searchParams.append('SEKRET', sekret!);
+    paymentUrl.searchParams.append('KWOTA', kwota);
+    paymentUrl.searchParams.append('NAZWA_USLUGI', nazwa_uslugi);
+    paymentUrl.searchParams.append('ADRES_WWW', adres_www);
+    paymentUrl.searchParams.append('ID_ZAMOWIENIA', orderId);
+    paymentUrl.searchParams.append('HASH', hash);
 
-    return NextResponse.json({ url: paymentUrl });
+    console.log("DEBUG - Generowany URL:", paymentUrl.toString());
+
+    return NextResponse.json({ url: paymentUrl.toString() });
 
   } catch (error: any) {
-    console.error("Błąd generowania linku HotPay:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
