@@ -112,16 +112,15 @@ export default function Checkout() {
     return total;
   };
 
-  const handlePlaceOrder = async (e: React.FormEvent) => {
+ const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
 
     try {
-      // DEFINIUJEMY USERA I KWOTĘ NA SAMYM POCZĄTKU FUNKCJI
       const { data: { user } } = await supabase.auth.getUser();
       const totalAmount = calculateTotal();
 
-      // 1. Zapisujemy "Szkic" zamówienia w bazie
+      // 1. Zapisujemy "Szkic" zamówienia w bazie (tabela orders)
       const { data: order, error: orderError } = await supabase.from('orders').insert([{
         user_id: user?.id,
         total_amount: totalAmount,
@@ -131,6 +130,41 @@ export default function Checkout() {
       }]).select().single();
 
       if (orderError) throw orderError;
+
+      // ---------------------------------------------------------
+      // NOWE: 1.5. ZAPISUJEMY ZAWARTOŚĆ KOSZYKA DO TABELI order_items
+      // ---------------------------------------------------------
+      const allItemsToInsert: any[] = [];
+
+      // Przechodzimy przez wszystkie paczki od wszystkich sprzedawców
+      Object.keys(groupedPackages).forEach(sellerId => {
+        const group = groupedPackages[sellerId];
+        
+        group.items.forEach((item: any) => {
+          const price = item.variant ? item.variant.price : item.listing.price;
+          
+          allItemsToInsert.push({
+            order_id: order.id,              // Łączymy z głównym zamówieniem
+            listing_id: item.listing.id,     // ID ogłoszenia
+            quantity: item.quantity,         // Ile sztuk ktoś kupuje
+            unit_price: price                // Cena za sztukę w momencie zakupu
+          });
+        });
+      });
+
+      // Zapisujemy całą tablicę "allItemsToInsert" do Supabase jednym rzutem
+      if (allItemsToInsert.length > 0) {
+        const { error: itemsError } = await supabase
+          .from('order_items')
+          .insert(allItemsToInsert);
+          
+        if (itemsError) {
+           console.error("Błąd podczas zapisywania przedmiotów z koszyka:", itemsError);
+           throw new Error("Nie udało się zapisać przedmiotów z koszyka.");
+        }
+      }
+      // ---------------------------------------------------------
+
 
       // 2. Prosimy nasz serwer o wygenerowanie linku do banku z kryptograficznym Hashem
       const paymentRes = await fetch('/api/payments/hotpay', {
@@ -151,7 +185,6 @@ export default function Checkout() {
       setIsProcessing(false);
     }
   };
-
   if (loading) return <div className="p-20 text-center">Inicjalizacja systemu Multi-Vendor Checkout...</div>;
 
   const sellerIds = Object.keys(groupedPackages);

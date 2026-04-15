@@ -40,35 +40,37 @@ export async function POST(req: Request) {
     }
 
     // 3. LOGIKA BIZNESOWA (Wydanie towaru)
-    if (status === 'SUCCESS') {
+   if (status === 'SUCCESS') {
         console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}, Kwota: ${kwota} PLN`);
         
-        const { data: order } = await supabaseAdmin
+        // 1. Oznaczamy całe zamówienie jako OPŁACONE
+        await supabaseAdmin
           .from('orders')
-          .select('*')
-          .eq('id', id_zamowienia)
-          .single();
+          .update({ status: 'paid', hotpay_id: id_platnosci })
+          .eq('id', id_zamowienia);
   
-        if (order && order.user_id) {
-            const newLimit = order.new_limit || 10; 
-            const updateType = order.update_type || 'replace';
-            let finalLimit = newLimit;
-    
-            if (updateType === 'add') {
-                const { data: profile } = await supabaseAdmin
-                  .from('profiles')
-                  .select('max_active_listings')
-                  .eq('id', order.user_id)
-                  .single();
-                  
-                finalLimit = (profile?.max_active_listings || 2) + newLimit; 
+        // 2. NOWE: Pobieramy listę zakupionych przedmiotów z koszyka (order_items)
+        const { data: orderItems } = await supabaseAdmin
+          .from('order_items')
+          .select('listing_id, quantity')
+          .eq('order_id', id_zamowienia);
+
+        // 3. NOWE: Aktualizujemy konkretne ogłoszenia (listings)
+        if (orderItems && orderItems.length > 0) {
+            for (const item of orderItems) {
+                if (item.listing_id) {
+                    // Tutaj decydujesz, co się dzieje z kupionym ogłoszeniem. 
+                    // Np. zmieniamy is_active na false (ukrywamy je), bo zostało sprzedane.
+                    await supabaseAdmin
+                        .from('listings')
+                        .update({ is_active: false }) // <-- Możesz tu też np. odjąć stock: stary_stock - item.quantity
+                        .eq('id', item.listing_id);
+                }
             }
-    
-            // Aktualizujemy profil i zamówienie
-            await supabaseAdmin.from('profiles').update({ max_active_listings: finalLimit }).eq('id', order.user_id);
-            await supabaseAdmin.from('orders').update({ status: 'paid', hotpay_id: id_platnosci }).eq('id', id_zamowienia);
-            console.log('✅ Baza danych zaktualizowana. Klient dostał swój pakiet!');
+            console.log(`🛒 Przetworzono ${orderItems.length} przedmiotów z koszyka!`);
         }
+
+        console.log('✅ Baza danych zaktualizowana. Transakcja zakończona!');
     }
 
     // 4. Potwierdzamy odbiór (HotPay tego wymaga)
