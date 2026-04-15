@@ -36,15 +36,31 @@ export default function DodajOgloszenie() {
   // Stany dla wielu zdjęć
   const [images, setImages] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
-
+  // --- STANY LOGISTYCZNE (Dla Bin-Packera) ---
+  const [weight, setWeight] = useState('');
+  const [dimLength, setDimLength] = useState('');
+  const [dimWidth, setDimWidth] = useState('');
+  const [dimHeight, setDimHeight] = useState('');
   // Stany logiki limitów i płatności
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isCheckingLimit, setIsCheckingLimit] = useState(true);
   const [limitStats, setLimitStats] = useState({ current: 0, max: 2 });
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
-
+  const [allowBuyNow, setAllowBuyNow] = useState(false);
+  // Tablica przechowująca warianty. Używamy Date.now() jako tymczasowego ID dla Reacta
+ const [variants, setVariants] = useState<{
+  id: number, 
+  name: string, 
+  price: string, 
+  stock: string,
+  weight: string,   // <-- NOWE
+  length: string,   // <-- NOWE
+  width: string,    // <-- NOWE
+  height: string    // <-- NOWE
+}[]>([]);
   // 1. ŁADOWANIE DANYCH (Kategorie, Gatunki, Brudnopis)
+  const [quantity, setQuantity] = useState('1');
   useEffect(() => {
     const fetchInitialData = async () => {
       // Pobieranie Kategorii
@@ -126,7 +142,15 @@ export default function DodajOgloszenie() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+useEffect(() => {
+  const selectedCat = dbCategories.find(c => c.name === category);
 
+  // Jeśli kategoria wymaga gatunku (czyli to zwierzę), czyścimy dane e-commerce
+  if (selectedCat?.requires_species) {
+    if (allowBuyNow) setAllowBuyNow(false); // Wyłączamy "Kup Teraz"
+    if (variants.length > 0) setVariants([]); // Usuwamy wpisane warianty z pamięci RAM
+  }
+}, [category, dbCategories, allowBuyNow, variants.length]);
   // --- LOGIKA KATEGORII (POMOCNICY) ---
   const mainCats = dbCategories.filter(c => !c.parent_id);
   const getChildren = (parentId: string) => dbCategories.filter(c => c.parent_id === parentId);
@@ -143,6 +167,26 @@ export default function DodajOgloszenie() {
     return selectedCat.name;
   };
 
+ const addVariant = () => {
+    setVariants([...variants, { 
+      id: Date.now(), 
+      name: '', 
+      price: price || '', 
+      stock: '1',
+      weight: '',
+      length: '',
+      width: '',
+      height: ''
+    }]);
+  };
+
+  const removeVariant = (idToRemove: number) => {
+    setVariants(variants.filter(v => v.id !== idToRemove));
+  };
+
+  const updateVariant = (id: number, field: string, value: string) => {
+    setVariants(variants.map(v => v.id === id ? { ...v, [field]: value } : v));
+  };
 const handleCategorySelect = (mainCat: any, hasChildren: boolean) => {
     if (hasChildren) {
       setExpandedParentId(prev => prev === mainCat.id ? null : mainCat.id);
@@ -183,81 +227,129 @@ const handleCategorySelect = (mainCat: any, hasChildren: boolean) => {
   };
 
   // --- WYSYŁKA FORMULARZA (Z obsługą wielu zdjęć!) ---
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // --- WALIDACJE (Zostają bez zmian) ---
     if (limitStats.current >= limitStats.max) {
       setShowPaywallModal(true);
       return; 
     }
-
     if (isBlocked) return alert('Nie możesz dodać tego gatunku.');
     if (needsSpecies && selectedSpeciesData?.cites_appendix === 'B' && !citesDeclaration) return alert('Musisz zaakceptować oświadczenie CITES.');
     if (needsSpecies && selectedSpeciesData?.cites_appendix === 'A' && !citesCertificate) return alert('Musisz podać numer certyfikatu CITES.');
     if (!currentUser) return alert('Musisz być zalogowany!');
 
     const adStatus = isCustom && needsSpecies ? 'pending' : 'active';
-
-    // 1. Zapisujemy ogłoszenie w bazie
-    const { data: newListing, error: listingError } = await supabase.from('listings').insert([{
-      title,
-      description,
-      category,
-      condition: !needsSpecies ? condition : null,
-      price: parseFloat(price),
-      seller_id: currentUser.id,
-      species_id: isCustom || !needsSpecies ? null : selectedSpeciesId,
-      custom_species_name: isCustom && needsSpecies ? customSpeciesName : null,
-      cites_certificate: selectedSpeciesData?.cites_appendix === 'A' && needsSpecies ? citesCertificate : null,
-      status: adStatus
-    }]).select().single();
-
-    if (listingError || !newListing) {
-      return alert('Błąd tworzenia ogłoszenia: ' + (listingError?.message || 'Nieznany błąd'));
-    }
-
-    // 2. PĘTLA WGRYWAJĄCA WIELE ZDJĘĆ
-    if (images.length > 0) {
-      const imagePromises = images.map(async (file) => {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${newListing.id}-${Math.random()}.${fileExt}`;
-        const filePath = `listings/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage.from('animals').upload(filePath, file);
-        if (uploadError) {
-          console.error('Błąd wgrywania zdjęcia:', uploadError);
-          return null; // Zwracamy null w razie błędu pojedynczego zdjęcia
-        }
-        
-        // Zapisujemy URL do naszej nowej tabeli na wiele zdjęć
-        const { data: { publicUrl } } = supabase.storage.from('animals').getPublicUrl(filePath);
-        await supabase.from('listing_images').insert([{
-          listing_id: newListing.id,
-          image_url: publicUrl
-        }]);
-
-        return publicUrl; // Opcjonalnie zwracamy (np. żeby pierwsze zdjęcie dać na cover)
-      });
-
-      // Czekamy, aż wszystkie zdjęcia się wgrają
-      const uploadedUrls = await Promise.all(imagePromises);
-      const validUrls = uploadedUrls.filter(url => url !== null);
-
-      // Dodatkowo: Zapisujemy pierwsze zdjęcie jako główną miniaturkę (cover) w starej kolumnie
-      if (validUrls.length > 0) {
-        await supabase.from('listings').update({ image_url: validUrls[0] }).eq('id', newListing.id);
-      }
-    }
-
-    // Sukces!
-    localStorage.removeItem('ogloszenieDraft');
     
-    if (isCustom && needsSpecies) {
-      alert('Ogłoszenie z nowym gatunkiem wysłane do weryfikacji!');
-      router.push('/moje-konto');
-    } else {
-      alert('Ogłoszenie dodane pomyślnie!');
-      router.push('/');
+    // Zabezpieczenie UX: Ustawiamy stan ładowania, by zablokować przycisk "Submit"
+    setIsCheckoutLoading(true); 
+
+    try {
+      // --- KROK 1: WGRYWANIE ZDJĘĆ DO POCZEKALNI (STORAGE) ---
+      const uploadedImageUrls: string[] = [];
+
+      if (images.length > 0) {
+        // Mapujemy pliki na tablicę obietnic (Promises)
+        const imagePromises = images.map(async (file) => {
+          const fileExt = file.name.split('.').pop();
+          // Tworzymy tymczasową unikalną nazwę, bo nie znamy jeszcze ID ogłoszenia
+          const fileName = `temp_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `listings/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage.from('animals').upload(filePath, file);
+          if (uploadError) {
+            console.error('Błąd wgrywania zdjęcia:', uploadError);
+            // Jeśli choć jedno zdjęcie zrzuci błąd, przerywamy cały proces (rzucamy wyjątek do catch)
+            throw new Error('Wystąpił problem z wgraniem zdjęć. Sprawdź połączenie.'); 
+          }
+          
+          const { data: { publicUrl } } = supabase.storage.from('animals').getPublicUrl(filePath);
+          return publicUrl; 
+        });
+
+        // Uruchamiamy wgrywanie równolegle! To ogromne przyspieszenie.
+        // Czekamy, aż WSZYSTKIE pliki wrócą z sukcesem.
+        const results = await Promise.all(imagePromises);
+        uploadedImageUrls.push(...results);
+      }
+
+      // --- KROK 2: ZAPIS OGŁOSZENIA DO BAZY (Mamy pewność, że zdjęcia są gotowe) ---
+      const { data: newListing, error: listingError } = await supabase.from('listings').insert([{
+        title,
+        description,
+        category,
+        condition: !needsSpecies ? condition : null,
+        // Jeśli sprzedawca podał warianty, to główna cena ogłoszenia jest tylko "poglądowa" (np. "od 15 PLN")
+        price: parseFloat(price), 
+        quantity: parseInt(quantity),
+        seller_id: currentUser.id,
+        species_id: isCustom || !needsSpecies ? null : selectedSpeciesId,
+        custom_species_name: isCustom && needsSpecies ? customSpeciesName : null,
+        cites_certificate: selectedSpeciesData?.cites_appendix === 'A' && needsSpecies ? citesCertificate : null,
+        status: adStatus,
+        allow_buy_now: allowBuyNow, // <--- Zapisujemy decyzję użytkownika
+        image_url: uploadedImageUrls.length > 0 ? uploadedImageUrls[0] : null,
+        weight: variants.length === 0 ? parseFloat(weight) || 0 : null,
+        dim_length: variants.length === 0 ? parseInt(dimLength) || 0 : null,
+        dim_width: variants.length === 0 ? parseInt(dimWidth) || 0 : null,
+        dim_height: variants.length === 0 ? parseInt(dimHeight) || 0 : null,
+      }]).select().single();
+
+      if (listingError || !newListing) throw new Error('Błąd tworzenia ogłoszenia w bazie.');
+
+      // --- KROK 2.5: ZAPIS WARIANTÓW (Jeśli Kup Teraz jest włączone i dodano warianty) ---
+      if (allowBuyNow && variants.length > 0) {
+        // Mapujemy nasz stan z frontu na format akceptowany przez tabelę w Supabase
+        const variantsToInsert = variants.map(v => ({
+          listing_id: newListing.id,
+          name: v.name,
+          price: parseFloat(v.price),
+          stock: parseInt(v.stock),
+          // NOWE: Dane logistyczne wariantu
+          weight: parseFloat(v.weight) || 0,
+          dim_length: parseInt(v.length) || 0,
+          dim_width: parseInt(v.width) || 0,
+          dim_height: parseInt(v.height) || 0
+        }));
+
+        const { error: variantError } = await supabase.from('listing_variants').insert(variantsToInsert);
+       if (variantError) {
+          // JSON.stringify wyciągnie "ukrytą" treść błędu
+          console.error('Błąd szczegółowy:', JSON.stringify(variantError, null, 2));
+        }
+      }
+
+      // --- KROK 3: ŁĄCZENIE ZDJĘĆ Z OGŁOSZENIEM (Tabela relacyjna) ---
+      if (uploadedImageUrls.length > 0) {
+        // Przygotowujemy od razu całą paczkę do wstawienia
+        const imagesToInsert = uploadedImageUrls.map(url => ({
+          listing_id: newListing.id,
+          image_url: url
+        }));
+
+        // Zapisujemy całą tablicę jednym zapytaniem do bazy
+        const { error: relationError } = await supabase.from('listing_images').insert(imagesToInsert);
+        if (relationError) console.error('Ostrzeżenie: Błąd relacji zdjęć:', relationError);
+      }
+
+      // --- KROK 4: SUKCES I CZYSZCZENIE ---
+      localStorage.removeItem('ogloszenieDraft');
+      
+      if (isCustom && needsSpecies) {
+        alert('Ogłoszenie z nowym gatunkiem wysłane do weryfikacji!');
+        router.push('/moje-konto');
+      } else {
+        alert('Ogłoszenie dodane pomyślnie!');
+        router.push('/');
+      }
+
+    } catch (err: any) {
+      // Wyłapujemy wszystkie błędy rzucone w kodzie wyżej i informujemy użytkownika
+      alert(err.message || 'Wystąpił nieoczekiwany błąd.');
+    } finally {
+      // Niezależnie od sukcesu czy błędu, odblokowujemy formularz
+      setIsCheckoutLoading(false); 
     }
   };
 
@@ -506,18 +598,145 @@ const handleCategorySelect = (mainCat: any, hasChildren: boolean) => {
             )}
           </div>
         </div>
+        {/* SEKCJA: E-COMMERCE I WARIANTY */}
+        {dbCategories.find(c => c.name === category)?.requires_species === false && (
+        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-black uppercase text-gray-900 tracking-widest flex items-center gap-2">
+                <span>🛒</span> Opcja "Kup Teraz"
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Zezwól na automatyczny zakup przez platformę (Przelewy24 / Trustap) i integrację z InPost.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" checked={allowBuyNow} onChange={e => setAllowBuyNow(e.target.checked)} className="sr-only peer" />
+              <div className="w-14 h-7 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-green-500"></div>
+            </label>
+          </div>
 
-        {/* --- KROK 4: TYTUŁ, OPIS, CENA --- */}
+          {/* DYNAMICZNA LISTA WARIANTÓW (Pojawia się tylko gdy Kup Teraz jest ON) */}
+          {allowBuyNow && (
+            <div className="mt-6 border-t border-gray-200 pt-6 animate-in fade-in slide-in-from-top-4">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="text-sm font-bold text-gray-700">Warianty produktu (Opcjonalnie)</h4>
+                <button type="button" onClick={addVariant} className="bg-black text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-gray-800 transition">
+                  + Dodaj wariant (np. Rozmiar)
+                </button>
+              </div>
+
+              {variants.length === 0 && (
+                <p className="text-xs text-gray-400 italic">Jeśli nie dodasz wariantów, przedmiot zostanie wystawiony jako jedna sztuka bazowa.</p>
+              )}
+
+              <div className="space-y-3">
+                {variants.map((variant, index) => (
+                  <div key={variant.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
+                    <div className="flex gap-3 items-start">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nazwa</label>
+                        <input type="text" value={variant.name} onChange={e => updateVariant(variant.id, 'name', e.target.value)} className="w-full border p-2 rounded-lg text-sm font-bold outline-none" required />
+                      </div>
+                      <div className="w-24">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cena</label>
+                        <input type="number" step="0.01" value={variant.price} onChange={e => updateVariant(variant.id, 'price', e.target.value)} className="w-full border p-2 rounded-lg text-sm font-bold text-green-700 outline-none" required />
+                      </div>
+                      <div className="w-20">
+                        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Ilość</label>
+                        <input type="number" min="1" value={variant.stock} onChange={e => updateVariant(variant.id, 'stock', e.target.value)} className="w-full border p-2 rounded-lg text-sm font-bold outline-none" required />
+                      </div>
+                      <button type="button" onClick={() => removeVariant(variant.id)} className="mt-5 text-red-500 hover:text-red-700 p-2">🗑️</button>
+                    </div>
+                    
+                    {/* Logistyka dla wariantu */}
+                    <div className="grid grid-cols-4 gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
+                      <div>
+                         <label className="block text-[9px] font-black text-blue-800 uppercase mb-1">Waga (kg)</label>
+                         <input type="number" step="0.1" value={variant.weight} onChange={e => updateVariant(variant.id, 'weight', e.target.value)} className="w-full border-blue-200 p-1.5 rounded text-xs font-bold" required placeholder="0.5"/>
+                      </div>
+                      <div>
+                         <label className="block text-[9px] font-black text-blue-800 uppercase mb-1">Dł. (cm)</label>
+                         <input type="number" value={variant.length} onChange={e => updateVariant(variant.id, 'length', e.target.value)} className="w-full border-blue-200 p-1.5 rounded text-xs font-bold" required placeholder="X"/>
+                      </div>
+                      <div>
+                         <label className="block text-[9px] font-black text-blue-800 uppercase mb-1">Szer. (cm)</label>
+                         <input type="number" value={variant.width} onChange={e => updateVariant(variant.id, 'width', e.target.value)} className="w-full border-blue-200 p-1.5 rounded text-xs font-bold" required placeholder="Y"/>
+                      </div>
+                      <div>
+                         <label className="block text-[9px] font-black text-blue-800 uppercase mb-1">Wys. (cm)</label>
+                         <input type="number" value={variant.height} onChange={e => updateVariant(variant.id, 'height', e.target.value)} className="w-full border-blue-200 p-1.5 rounded text-xs font-bold" required placeholder="Z"/>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        )}
+        {/* --- KROK 4: TYTUŁ, OPIS, CENA I ILOŚĆ --- */}
         <div className="space-y-4">
            <input type="text" required placeholder="Tytuł ogłoszenia" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:bg-white focus:ring-2 focus:ring-black transition font-bold text-lg" />
            <textarea required placeholder="Opis. Bądź dokładny i opisz wszystko szczegółowo..." value={description} onChange={(e) => setDescription(e.target.value)} rows={6} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:bg-white focus:ring-2 focus:ring-black transition resize-none" />
            
-           <div className="relative">
-             <input type="number" required placeholder="0.00" value={price} onChange={(e) => setPrice(e.target.value)} min="0" className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-4 pr-16 py-4 outline-none focus:bg-white focus:ring-2 focus:ring-black transition font-black text-xl" />
-             <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">PLN</span>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+             {/* 4A. CENA (Dynamiczna Etykieta) */}
+             <div>
+               <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">
+                 {variants.length > 0 ? 'Cena bazowa (PLN)' : 'Cena (PLN)'}
+               </label>
+               <div className="relative">
+                 <input type="number" required placeholder="0.00" value={price} onChange={(e) => setPrice(e.target.value)} min="0" step="0.01" className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-4 pr-16 py-3 outline-none focus:bg-white focus:ring-2 focus:ring-black transition font-black text-xl text-green-700" />
+                 <span className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-gray-400">PLN</span>
+               </div>
+             </div>
+
+             {/* 4B. ILOŚĆ (Znika, jeśli są warianty) */}
+             {variants.length === 0 ? (
+               <div className="animate-in fade-in">
+                 <label className="block text-sm font-bold text-gray-700 mb-1 ml-1">Dostępnych (szt.)</label>
+                 <input 
+                   type="number" 
+                   min="1" 
+                   // Używamy zmyślonej zmiennej, dodaj const [quantity, setQuantity] = useState('1'); na górze pod setPrice
+                   value={quantity} 
+                   onChange={e => setQuantity(e.target.value)} 
+                   className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:bg-white focus:ring-2 focus:ring-black transition font-bold text-xl" 
+                   required 
+                 />
+               </div>
+             ) : (
+               <div className="flex flex-col justify-center bg-gray-100 rounded-xl p-3 border border-gray-200 mt-6">
+                 <span className="text-[10px] font-black uppercase text-gray-400 mb-1 text-center">Magazyn</span>
+                 <span className="text-xs font-bold text-gray-600 text-center">Ilość zarządzana w wariantach ➔</span>
+               </div>
+             )}
+             {allowBuyNow && variants.length === 0 && (
+              <div className="lg:col-span-2 grid grid-cols-4 gap-3 bg-blue-50 p-4 rounded-xl border border-blue-100 animate-in fade-in">
+                <div className="col-span-4 mb-1">
+                  <span className="text-[10px] font-black uppercase text-blue-800 tracking-widest">Dane do wysyłki (Bin-Packer)</span>
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Waga (kg)</label>
+                   <input type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} className="w-full border border-gray-200 p-2 rounded-lg font-bold" required placeholder="0.5"/>
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Dł. (cm)</label>
+                   <input type="number" value={dimLength} onChange={e => setDimLength(e.target.value)} className="w-full border border-gray-200 p-2 rounded-lg font-bold" required placeholder="X"/>
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Szer. (cm)</label>
+                   <input type="number" value={dimWidth} onChange={e => setDimWidth(e.target.value)} className="w-full border border-gray-200 p-2 rounded-lg font-bold" required placeholder="Y"/>
+                </div>
+                <div>
+                   <label className="block text-[10px] font-bold text-gray-600 uppercase mb-1">Wys. (cm)</label>
+                   <input type="number" value={dimHeight} onChange={e => setDimHeight(e.target.value)} className="w-full border border-gray-200 p-2 rounded-lg font-bold" required placeholder="Z"/>
+                </div>
+              </div>
+            )}
            </div>
         </div>
-
         <button 
           type="submit" 
           disabled={isBlocked || (needsSpecies && selectedSpeciesId === '')} 

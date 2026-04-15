@@ -10,7 +10,8 @@ export default function PanelAdmina() {
   
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
-  
+  const [editPolishName, setEditPolishName] = useState(''); // Edycja polskiej nazwy
+  const [selectedCategoryId, setSelectedCategoryId] = useState(''); // Wybrana kategoria dla gatunku
   const [activeTab, setActiveTab] = useState('Zgłoszenia'); 
   const [stats, setStats] = useState({ users: 0, listings: 0, reports: 0, pending: 0 });
   const [users, setUsers] = useState<any[]>([]);
@@ -64,8 +65,14 @@ export default function PanelAdmina() {
 
       const { data: usersData } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
       const { data: reportsData } = await supabase.from('reports').select('*').order('created_at', { ascending: false });
-      const { data: pendingData } = await supabase.from('listings').select('*, profiles(username)').eq('status', 'pending').order('created_at', { ascending: false });
-      
+          // Nowa, bezpieczna linijka pobierająca nowe gatunki
+          const { data: pendingData } = await supabase
+  .from('listings')
+  .select('*') // Znowu wywalamy profiles(username)
+  .eq('status', 'pending')
+  .order('created_at', { ascending: false });
+
+setPendingListings(pendingData || []);
       // NOWOŚĆ: PAKIETY - Pobieranie planów cenowych
       const { data: plansData } = await supabase.from('pricing_plans').select('*').order('price_pln');
 
@@ -114,36 +121,41 @@ export default function PanelAdmina() {
       setStats(prev => ({ ...prev, reports: Math.max(0, prev.reports - 1) }));
     }
   };
+const handleApproveSpecies = async (listing: any) => {
+    if (!editPolishName) return alert('Polska nazwa jest wymagana!');
+    if (!latinName) return alert('Musisz podać nazwę łacińską!');
+    if (!selectedCategoryId) return alert('Wybierz kategorię nadrzędną dla tego gatunku!');
 
-  const handleApproveSpecies = async (listing: any) => {
-    if (!latinName) return alert('Musisz podać nazwę łacińską dla nowego gatunku!');
-
+    // 1. Zapisujemy gatunek do słownika
     const { data: newSpecies, error: speciesError } = await supabase.from('species').insert([{
-      name: listing.custom_species_name,
+      name: editPolishName, // Używamy naszej skorygowanej nazwy
       latin_name: latinName,
       cites_appendix: cites,
       is_igo: isIgo,
       is_dangerous: isDangerous,
+      category_id: selectedCategoryId, // Wiążemy gatunek z kategorią!
       is_approved: true
     }]).select().single();
 
     if (speciesError || !newSpecies) return alert('Błąd przy dodawaniu gatunku: ' + speciesError?.message);
 
+    // 2. Aktualizujemy ogłoszenie
     const { error: listingError } = await supabase.from('listings').update({
       species_id: newSpecies.id,
       custom_species_name: null,
       status: 'active'
     }).eq('id', listing.id);
 
-    if (listingError) return alert('Błąd przy aktywacji ogłoszenia!');
+    if (listingError) return alert('Błąd przy aktywacji ogłoszenia: ' + listingError.message);
 
+    // 3. Czyszczenie ekranu
     setPendingListings(prev => prev.filter(item => item.id !== listing.id));
     setStats(prev => ({ ...prev, pending: Math.max(0, prev.pending - 1) }));
     setActiveListingId(null);
-    setLatinName(''); setCites('NONE'); setIsIgo(false); setIsDangerous(false);
-    alert('Sukces! Gatunek dodany do globalnej bazy!');
+    setLatinName(''); setEditPolishName(''); setSelectedCategoryId(''); setCites('NONE'); setIsIgo(false); setIsDangerous(false);
+    
+    alert('Sukces! Gatunek wpisany do słownika i powiązany z kategorią!');
   };
-
   const handleRejectSpecies = async (listing: any) => {
     if (!window.confirm(`Czy na pewno chcesz odrzucić propozycję gatunku "${listing.custom_species_name}"? To odrzuci WSZYSTKIE ogłoszenia z tą nazwą.`)) return;
 
@@ -396,6 +408,7 @@ const handleAddCategory = async (e: React.FormEvent) => {
                   <div>
                     <span className="bg-yellow-100 text-yellow-800 text-xs font-black px-3 py-1 rounded-full uppercase tracking-widest">Oczekuje na akceptację</span>
                     <h2 className="text-xl font-black mt-3">{listing.title}</h2>
+                    {/* Tutaj wyświetlamy nazwę pobraną przez alias! */}
                     <p className="text-gray-500 text-sm mt-1">Użytkownik: <span className="font-bold text-gray-900">{listing.profiles?.username || 'Nieznany'}</span></p>
                     <p className="text-gray-500 text-sm">Zaproponowany gatunek: <span className="font-black text-blue-600 text-lg">{listing.custom_species_name}</span></p>
                   </div>
@@ -406,19 +419,45 @@ const handleAddCategory = async (e: React.FormEvent) => {
   
                 {activeListingId === listing.id ? (
                   <div className="bg-gray-50 p-6 rounded-2xl border animate-in fade-in zoom-in-95">
-                    <h3 className="font-black text-gray-900 mb-4 uppercase text-sm">Uzupełnij dane o gatunku</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                      <input type="text" placeholder="Nazwa łacińska (Wymagane)" value={latinName} onChange={e => setLatinName(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black" />
-                      <select value={cites} onChange={e => setCites(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black">
-                        <option value="NONE">Brak CITES</option>
-                        <option value="B">CITES - Załącznik B</option>
-                        <option value="A">CITES - Załącznik A (Wymaga Certyfikatu)</option>
-                      </select>
+                    <h3 className="font-black text-gray-900 mb-4 uppercase text-sm">Uzupełnij i popraw dane o gatunku</h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Polska Nazwa (Możesz poprawić literówki)</label>
+                        <input type="text" value={editPolishName} onChange={e => setEditPolishName(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black font-bold" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nazwa Łacińska (Wymagane)</label>
+                        <input type="text" placeholder="np. Chamaeleo calyptratus" value={latinName} onChange={e => setLatinName(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black italic" />
+                      </div>
                     </div>
-                    <div className="flex gap-6 mb-6">
-                      <label className="flex items-center gap-2 font-bold text-red-600 cursor-pointer"><input type="checkbox" checked={isIgo} onChange={e => setIsIgo(e.target.checked)} className="w-5 h-5 accent-red-600"/> To jest gatunek inwazyjny (IGO)</label>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                      <div>
+                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Kategoria nadrzędna</label>
+                         <select value={selectedCategoryId} onChange={e => setSelectedCategoryId(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black">
+                            <option value="" disabled>Przypisz do kategorii...</option>
+                            {/* Wyświetlamy tylko kategorie sprzężone ze zwierzętami (te bez parent_id) */}
+                            {categories.filter(c => !c.parent_id).map(c => (
+                               <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                         </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Status prawny</label>
+                        <select value={cites} onChange={e => setCites(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black">
+                          <option value="NONE">Brak CITES</option>
+                          <option value="B">CITES - Załącznik B</option>
+                          <option value="A">CITES - Załącznik A (Wymaga Certyfikatu)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-6 mb-6 p-4 bg-white rounded-xl border border-gray-200">
+                      <label className="flex items-center gap-2 font-bold text-red-600 cursor-pointer"><input type="checkbox" checked={isIgo} onChange={e => setIsIgo(e.target.checked)} className="w-5 h-5 accent-red-600"/> Gatunek inwazyjny (IGO)</label>
                       <label className="flex items-center gap-2 font-bold text-red-600 cursor-pointer"><input type="checkbox" checked={isDangerous} onChange={e => setIsDangerous(e.target.checked)} className="w-5 h-5 accent-red-600"/> Zwierzę niebezpieczne</label>
                     </div>
+
                     <div className="flex gap-3">
                       <button onClick={() => handleApproveSpecies(listing)} className="flex-1 bg-black text-white font-black py-3 rounded-xl hover:bg-gray-800 transition">✅ Zatwierdź i Dodaj do Bazy</button>
                       <button onClick={() => setActiveListingId(null)} className="px-6 bg-gray-200 text-gray-700 font-bold rounded-xl hover:bg-gray-300 transition">Anuluj</button>
@@ -426,7 +465,18 @@ const handleAddCategory = async (e: React.FormEvent) => {
                   </div>
                 ) : (
                   <div className="flex gap-3">
-                    <button onClick={() => setActiveListingId(listing.id)} className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl hover:bg-blue-700 transition">Rozpatrz to ogłoszenie</button>
+                    <button 
+                      onClick={() => {
+                        setActiveListingId(listing.id);
+                        // Automatycznie wypełniamy polską nazwę tym, co wpisał użytkownik
+                        setEditPolishName(listing.custom_species_name || '');
+                        setLatinName('');
+                        setSelectedCategoryId('');
+                      }} 
+                      className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl hover:bg-blue-700 transition"
+                    >
+                      Rozpatrz to ogłoszenie
+                    </button>
                     <button onClick={() => handleRejectSpecies(listing)} className="px-6 bg-red-100 text-red-600 font-black rounded-xl hover:bg-red-200 transition">Odrzuć</button>
                   </div>
                 )}

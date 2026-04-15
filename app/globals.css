@@ -14,7 +14,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #d3c0c0;
+    --background: #ffffff;
     --foreground: #000000;
   }
 }
@@ -23,4 +23,34 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer utilities {
+  /* Ukrywamy domyślny pasek, włączamy własny */
+  .custom-scrollbar::-webkit-scrollbar {
+    height: 6px; /* Bardzo cienki, nowoczesny pasek */
+  }
+  
+  /* Tło paska (tzw. tor) - robimy przezroczyste */
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+  }
+  
+  /* Sam "suwak" (thumb) */
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #e5e7eb; /* Odpowiada kolorowi tailwinda: gray-200 */
+    border-radius: 10px;
+  }
+  
+  /* Ciemniejszy suwak po najechaniu myszką */
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #d1d5db; /* gray-300 */
+  }
+  
+  /* Wsparcie dla Firefoxa */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #e5e7eb transparent;
+  }
 }

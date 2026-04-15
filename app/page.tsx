@@ -96,11 +96,16 @@ export default function Home() {
   const showSpeciesFilter = currentCatObj ? currentCatObj.requires_species : true;
 
   const availableSpecies = dbSpecies.filter(s => {
+    // 1. Jeśli wybrano podkategorię (np. Pytony) - bierzemy tylko gatunki przypisane do niej
     if (selectedSubId) return s.category_id === selectedSubId;
+    
+    // 2. Jeśli wybrano kategorię główną (np. Węże) - bierzemy gatunki z głównej ORAZ z jej podkategorii
     if (selectedParentId) {
       const childIds = dbCategories.filter(c => c.parent_id === selectedParentId).map(c => c.id);
-      return childIds.includes(s.category_id);
+      return s.category_id === selectedParentId || childIds.includes(s.category_id);
     }
+    
+    // 3. Brak wybranej kategorii - pokazujemy wszystko
     return true; 
   });
 

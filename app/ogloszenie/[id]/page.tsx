@@ -5,6 +5,22 @@ import { supabase } from '../../../lib/supabase';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+const MiniAdCard = ({ item }: { item: any }) => (
+  <Link href={`/ogloszenie/${item.id}`} className="block w-40 md:w-48 shrink-0 snap-start group cursor-pointer">
+    <div className="w-full aspect-square bg-gray-100 rounded-2xl overflow-hidden mb-3 relative border border-gray-200">
+      {item.image_url ? (
+        <img src={item.image_url} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+           <span className="text-2xl">📸</span>
+        </div>
+      )}
+    </div>
+    <p className="text-xs font-bold text-gray-500 uppercase truncate mb-1">{item.category}</p>
+    <h4 className="text-sm font-black text-gray-900 leading-tight mb-1 truncate">{item.title}</h4>
+    <p className="text-lg font-black text-green-600">{item.price} <span className="text-xs">PLN</span></p>
+  </Link>
+);
 export default function OgloszeniePage() {
   const params = useParams();
   const router = useRouter();
@@ -14,7 +30,13 @@ export default function OgloszeniePage() {
   
   const [images, setImages] = useState<string[]>([]);
   const [activeImgIndex, setActiveImgIndex] = useState(0);
-
+  const [sellerAds, setSellerAds] = useState<any[]>([]);
+  const [recommendedAds, setRecommendedAds] = useState<any[]>([]);
+  const [similarAds, setSimilarAds] = useState<any[]>([]);
+  const [extrasLoading, setExtrasLoading] = useState(true);
+  const [variants, setVariants] = useState<any[]>([]);
+  const [selectedVariant, setSelectedVariant] = useState<any | null>(null);
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
   useEffect(() => {
     const fetchListing = async () => {
       if (!params.id) return;
@@ -25,8 +47,9 @@ export default function OgloszeniePage() {
           *,
           seller:profiles!fk_seller_profile(username, store_address, avatar_url),
           species:species(*),
-          listing_images(image_url)
-        `)
+          listing_images(image_url),
+          variants:listing_variants(*) 
+        `) // ^^^ TUTAJ DOKLEJAMY WARIANTY ^^^
         .eq('id', params.id)
         .single();
 
@@ -35,6 +58,7 @@ export default function OgloszeniePage() {
       } else {
         setAd(data);
         
+        // 1. Obsługa zdjęć (Zostaje tak jak miałeś)
         let allImages: string[] = [];
         if (data.listing_images && data.listing_images.length > 0) {
           allImages = data.listing_images.map((img: any) => img.image_url);
@@ -42,6 +66,14 @@ export default function OgloszeniePage() {
           allImages = [data.image_url];
         }
         setImages(allImages);
+
+        // 2. NOWOŚĆ: Obsługa Wariantów
+        if (data.allow_buy_now && data.variants && data.variants.length > 0) {
+          // Sortujemy od najtańszego do najdroższego
+          const sortedVariants = data.variants.sort((a: any, b: any) => a.price - b.price);
+          setVariants(sortedVariants);
+          setSelectedVariant(sortedVariants[0]); // Domyślnie zaznaczamy najtańszy
+        }
       }
       setLoading(false);
     };
@@ -49,9 +81,118 @@ export default function OgloszeniePage() {
     fetchListing();
   }, [params.id]);
 
+  useEffect(() => {
+    if (!ad) return;
+
+    const fetchExtras = async () => {
+      setExtrasLoading(true);
+
+      // 1. INNE OD TEGO SPRZEDAWCY
+      const { data: sellerData } = await supabase
+        .from('listings')
+        .select('id, title, price, image_url, category, condition')
+        .eq('seller_id', ad.seller_id)
+        .neq('id', ad.id) // Omijamy aktualne ogłoszenie
+        .eq('status', 'active')
+        .limit(5);
+
+      setSellerAds(sellerData || []);
+
+      // 3. Z TEJ SAMEJ KATEGORII
+      const { data: similarData } = await supabase
+        .from('listings')
+        .select('id, title, price, image_url, category, condition')
+        .eq('category', ad.category)
+        .neq('id', ad.id)
+        .eq('status', 'active')
+        .limit(5);
+        
+      setSimilarAds(similarData || []);
+
+      // 2. MOŻE CI SIĘ PRZYDAĆ (Na podstawie Twoich powiązań w bazie)
+      // UWAGA: Dopasuj to zapytanie do tego, jak dokładnie nazwałeś tabele w panelu admina!
+      // 2. MOŻE CI SIĘ PRZYDAĆ (Logika z Debuggerem)
+     const { data: currentCat } = await supabase.from('categories').select('id').eq('name', ad.category).single();
+
+        if (currentCat) {
+          // KROK B: Szukamy powiązań (TERAZ Z POPRAWNĄ NAZWĄ KOLUMNY!)
+          const { data: suggestions } = await supabase
+            .from('category_suggestions')
+            .select('suggested_category_id') // <-- TU BYŁ MÓJ BŁĄD
+            .eq('source_category_id', currentCat.id);
+
+          if (suggestions && suggestions.length > 0) {
+            // Mapujemy też poprawną nazwę z obiektu
+            const targetIds = suggestions.map(s => s.suggested_category_id); // <-- I TUTAJ TEŻ
+
+            // KROK C: Pobieramy NAZWY tych kategorii
+            const { data: targetCats } = await supabase.from('categories').select('name').in('id', targetIds);
+
+            if (targetCats) {
+              const names = targetCats.map(c => c.name);
+
+              // KROK D: Pobieramy gotowe ogłoszenia
+              const { data: recData } = await supabase
+                .from('listings')
+                .select('*')
+                .in('category', names)
+                .eq('status', 'active')
+                .limit(6);
+              
+              setRecommendedAds(recData || []);
+            }
+          }
+        }
+
+      setExtrasLoading(false);
+    };
+
+    fetchExtras();
+  }, [ad]); // Odpali się, gdy 'ad' ulegnie zmianie
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center font-black text-2xl text-gray-300 animate-pulse">Wczytywanie...</div>;
   }
+  const handleAddToCart = async () => {
+    setIsAddingToCart(true);
+    
+    // Sprawdzamy czy użytkownik jest zalogowany
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert("Musisz być zalogowany, aby dodać do koszyka!");
+      // router.push('/logowanie'); // Odkomentuj jeśli masz stronę logowania
+      setIsAddingToCart(false);
+      return;
+    }
+
+    try {
+      // Przygotowujemy dane do wstawienia
+      const payload = {
+        user_id: user.id,
+        listing_id: ad.id,
+        variant_id: selectedVariant ? selectedVariant.id : null,
+        quantity: 1 // Na start dodajemy 1 sztukę
+      };
+
+      // Używamy .upsert(), co oznacza: "Wstaw nowy, a jeśli już taki wariant jest w koszyku, to go zaktualizuj"
+      // Aby upsert zwiększał ilość, musimy najpierw sprawdzić czy istnieje, ale dla uproszczenia zrobimy po prostu insert z obsługą błędu
+      const { error } = await supabase.from('cart_items').insert([payload]);
+
+      if (error) {
+        if (error.code === '23505') { // Kod błędu dla naruszenia UNIQUE
+          alert("Ten przedmiot jest już w Twoim koszyku!");
+        } else {
+          throw error;
+        }
+      } else {
+        alert("✅ Dodano do koszyka!");
+        // Opcjonalnie: odśwież licznik koszyka w nawigacji
+      }
+    } catch (err: any) {
+      alert("Błąd: " + err.message);
+    } finally {
+      setIsAddingToCart(false);
+    }
+  };
 
   if (!ad) {
     return (
@@ -184,13 +325,72 @@ export default function OgloszeniePage() {
             <div className="sticky top-28 space-y-6">
               
               {/* KARTA AKCJI (Desktop Only) */}
-              <div className="hidden md:block bg-white p-8 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100">
-                <p className="text-sm text-gray-400 font-bold uppercase mb-1">Cena</p>
-                <p className="text-4xl font-black text-green-600 mb-6">{ad.price} <span className="text-xl">PLN</span></p>
-                <button className="w-full bg-black text-white text-lg font-black py-4 rounded-xl hover:bg-gray-800 hover:scale-[1.02] transition-all flex items-center justify-center gap-2">
-                  <span>✉️</span> Napisz wiadomość
-                </button>
+             {/* --- CENA DYNAMICZNA --- */}
+          <div className="mb-6 pb-6 border-b border-gray-100">
+            <p className="text-4xl font-black text-green-600 tracking-tight">
+              {/* Jeśli są warianty, pokazujemy cenę wybranego. Jeśli nie, cenę bazową. */}
+              {variants.length > 0 && selectedVariant 
+                ? selectedVariant.price 
+                : ad.price} PLN
+            </p>
+            {variants.length > 0 && (
+              <p className="text-sm font-bold text-gray-400 uppercase mt-1">Cena zależy od wariantu</p>
+            )}
+          </div>
+
+          {/* --- WYBÓR WARIANTU (Tylko jeśli istnieją) --- */}
+          {variants.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-sm font-black uppercase text-gray-900 mb-3 tracking-widest">Dostępne warianty</h3>
+              <div className="flex flex-wrap gap-3">
+                {variants.map(variant => {
+                  const isSelected = selectedVariant?.id === variant.id;
+                  const isOutOfStock = variant.stock <= 0;
+
+                  return (
+                    <button
+                      key={variant.id}
+                      onClick={() => !isOutOfStock && setSelectedVariant(variant)}
+                      disabled={isOutOfStock}
+                      className={`
+                        relative px-5 py-3 rounded-xl border-2 font-bold transition-all text-sm
+                        ${isSelected 
+                          ? 'border-black bg-black text-white shadow-md transform scale-105' 
+                          : isOutOfStock
+                            ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed opacity-60'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50'
+                        }
+                      `}
+                    >
+                      <span className="block">{variant.name}</span>
+                      {/* Jeśli to jest wybrany kafel, zmieniamy kolor tekstu dodatkowego */}
+                      <span className={`block text-[10px] mt-1 uppercase ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                         {isOutOfStock ? 'Brak w magazynie' : `W magazynie: ${variant.stock}`}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
+            </div>
+          )}
+
+          {/* --- PRZYCISKI AKCJI (Kup Teraz vs Wiadomość) --- */}
+          <div className="flex flex-col gap-3">
+           {/* Przycisk Kup Teraz pojawia się tylko, jeśli sprzedawca na to pozwolił i mamy stan magazynowy */}
+            {ad.allow_buy_now && (!variants.length || (selectedVariant && selectedVariant.stock > 0)) && (
+              <button 
+                onClick={handleAddToCart}
+                disabled={isAddingToCart}
+                className="w-full bg-green-500 hover:bg-green-600 text-white font-black text-lg py-5 rounded-2xl transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2 animate-in fade-in zoom-in duration-300 disabled:bg-green-300"
+              >
+                <span>🛒</span> {isAddingToCart ? 'Dodawanie...' : 'Dodaj do koszyka'}
+              </button>
+            )}
+            
+            <button className="w-full border-2 border-gray-900 text-gray-900 hover:bg-gray-900 hover:text-white font-black text-lg py-5 rounded-2xl transition-all flex items-center justify-center gap-2">
+              <span>💬</span> Napisz do sprzedawcy
+            </button>
+          </div>
 
               {/* SPRZEDAWCA */}
               <div className="py-6 md:p-6 md:bg-gray-50 md:rounded-3xl border-t border-b border-gray-100 md:border-none flex flex-col gap-4">
@@ -224,7 +424,48 @@ export default function OgloszeniePage() {
 
         </div>
       </div>
+      {/* --- SEKCJE REKOMENDACJI --- */}
+      {!extrasLoading && (
+        <div className="max-w-5xl mx-auto px-5 md:px-6 mt-16 pb-12 space-y-12 border-t border-gray-100 pt-12">
+          
+          {/* 1. Od tego samego sprzedawcy */}
+          {sellerAds.length > 0 && (
+            <section>
+              <h2 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">
+                <span>📦</span> Inne ogłoszenia tego sprzedawcy
+              </h2>
+              <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
+                {sellerAds.map(item => <MiniAdCard key={item.id} item={item} />)}
+              </div>
+            </section>
+          )}
 
+          {/* 2. Może Ci się przydać */}
+          {recommendedAds.length > 0 && (
+            <section>
+              <h2 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">
+                <span>💡</span> Może Ci się przydać
+              </h2>
+              <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
+                {recommendedAds.map(item => <MiniAdCard key={item.id} item={item} />)}
+              </div>
+            </section>
+          )}
+
+          {/* 3. Podobne z tej kategorii */}
+          {similarAds.length > 0 && (
+            <section>
+              <h2 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">
+                <span>🦎</span> Podobne w tej kategorii
+              </h2>
+              <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar snap-x snap-mandatory">
+                {similarAds.map(item => <MiniAdCard key={item.id} item={item} />)}
+              </div>
+            </section>
+          )}
+
+        </div>
+      )}
       {/* --- ODCHUDZONY MOBILE STICKY BOTTOM BAR --- */}
       {/* ODCHUDZANIE: Zmniejszony padding (p-2 px-4 zamiast p-4 px-5). */}
       <div className="md:hidden fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 p-2 px-4 flex justify-between items-center z-50 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">

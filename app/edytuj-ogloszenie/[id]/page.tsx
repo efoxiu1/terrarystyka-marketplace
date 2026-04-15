@@ -9,20 +9,24 @@ export default function EdytujOgloszenie() {
   const params = useParams();
   const adId = params.id as string;
   
+  // --- STANY OGŁOSZENIA ---
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Gady');
+  const [category, setCategory] = useState('');
   const [price, setPrice] = useState('');
   const [quantity, setQuantity] = useState('1');
+  const [condition, setCondition] = useState('new');
   const [cites, setCites] = useState(false);
   const [description, setDescription] = useState('');
-  const [location, setLocation] = useState('');
+  
+  // --- BAZA DANYCH ---
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
   
   // --- ZARZĄDZANIE ZDJĘCIAMI ---
-  // 1. Lista starych zdjęć (linków URL prosto z bazy)
   const [existingGallery, setExistingGallery] = useState<string[]>([]);
-  // 2. Lista nowych zdjęć (plików, które dopiero wgramy)
-  const [newImages, setNewImages] = useState<File[]>([]);
+  const [newImagePreviews, setNewImagePreviews] = useState<{file: File, url: string}[]>([]);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   
+  // --- UI STANY ---
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,37 +34,34 @@ export default function EdytujOgloszenie() {
   useEffect(() => {
     const fetchAdData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/rejestracja');
-        return;
-      }
+      if (!user) return router.push('/rejestracja');
+
+      const { data: catData } = await supabase.from('categories').select('*').order('name');
+      if (catData) setDbCategories(catData);
 
       const { data, error } = await supabase.from('listings').select('*').eq('id', adId).single();
-
       if (error || !data) {
         setMessage('Błąd pobierania ogłoszenia.');
         setLoading(false);
         return;
       }
 
-      if (data.seller_id !== user.id) {
-        router.push('/moje-konto');
-        return;
-      }
+      if (data.seller_id !== user.id) return router.push('/moje-konto');
 
       setTitle(data.title);
-      setCategory(data.category);
+      setCategory(data.category); // Zapisujemy kategorię do odczytu, ale nie pozwolimy jej zmienić
       setPrice(data.price.toString());
       setQuantity(data.quantity?.toString() || '1');
+      setCondition(data.condition || 'new');
       setCites(data.has_cites);
       setDescription(data.description || '');
-      setLocation(data.location || '');
       
-      // Pobieramy starą galerię. Jeśli była pusta, sprawdzamy czy nie było starego pojedynczego zdjęcia
       if (data.gallery && data.gallery.length > 0) {
         setExistingGallery(data.gallery);
+        setThumbnailUrl(data.image_url || data.gallery[0]);
       } else if (data.image_url) {
         setExistingGallery([data.image_url]);
+        setThumbnailUrl(data.image_url);
       }
       
       setLoading(false);
@@ -69,60 +70,81 @@ export default function EdytujOgloszenie() {
     fetchAdData();
   }, [adId, router]);
 
-  // Funkcja do usuwania zdjęcia ze STAREJ galerii
   const handleRemoveExistingImage = (urlToRemove: string) => {
-    // Zostawiamy w tablicy tylko te linki, które NIE są tym usuwanym
-    setExistingGallery(prevGallery => prevGallery.filter(url => url !== urlToRemove));
+    setExistingGallery(prev => prev.filter(url => url !== urlToRemove));
+  };
+
+  const handleRemoveNewImage = (indexToRemove: number) => {
+    setNewImagePreviews(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const filesArray = Array.from(e.target.files);
+      const previews = filesArray.map(file => ({
+        file,
+        url: URL.createObjectURL(file) 
+      }));
+      setNewImagePreviews(prev => [...prev, ...previews]);
+    }
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+
     setSaving(true);
     setMessage('Przetwarzanie danych...');
 
     let newlyUploadedUrls: string[] = [];
+    let uploadedUrlMap = new Map<string, string>(); 
 
-    // Jeśli użytkownik dodał NOWE zdjęcia, musimy je najpierw wgrać do chmury (Storage)
-    if (newImages.length > 0) {
-      setMessage(`Wgrywam nowe zdjęcia (${newImages.length} szt.)...`);
+    if (newImagePreviews.length > 0) {
+      setMessage(`Wgrywam nowe zdjęcia (${newImagePreviews.length} szt.)...`);
       
-      for (const file of newImages) {
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+      for (const item of newImagePreviews) {
+        const fileExt = item.file.name.split('.').pop();
+        const fileName = `listings/temp_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
 
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('animals')
-          .upload(fileName, file);
+        const { error: uploadError } = await supabase.storage.from('animals').upload(fileName, item.file);
 
         if (!uploadError) {
-          const { data: publicUrlData } = supabase.storage.from('animals').getPublicUrl(fileName);
-          newlyUploadedUrls.push(publicUrlData.publicUrl);
-        } else {
-          console.error("Błąd wgrywania pliku:", uploadError);
+          const { data: { publicUrl } } = supabase.storage.from('animals').getPublicUrl(fileName);
+          newlyUploadedUrls.push(publicUrl);
+          uploadedUrlMap.set(item.url, publicUrl); 
         }
       }
     }
 
-    // Łączymy stare (nieusunięte) zdjęcia z nowo wgranymi w jedną, ostateczną tablicę
     const finalGallery = [...existingGallery, ...newlyUploadedUrls];
-    
-    // Zabezpieczenie na wypadek usunięcia wszystkich zdjęć
-    const finalImageUrl = finalGallery.length > 0 ? finalGallery[0] : null;
+    let finalImageUrl = thumbnailUrl;
+
+    if (finalImageUrl && uploadedUrlMap.has(finalImageUrl)) {
+      finalImageUrl = uploadedUrlMap.get(finalImageUrl)!;
+    }
+
+    if (finalImageUrl && !finalGallery.includes(finalImageUrl)) {
+      finalImageUrl = finalGallery.length > 0 ? finalGallery[0] : null;
+    } else if (!finalImageUrl && finalGallery.length > 0) {
+      finalImageUrl = finalGallery[0];
+    }
 
     setMessage('Zapisuję zmiany w bazie...');
 
+    const selectedCatInfo = dbCategories.find(c => c.name === category);
+    const isAccessory = selectedCatInfo ? !selectedCatInfo.requires_species : false;
+
+    // USUNIĘTO "category" Z OBIEKTU UPDATE - BLOKADA BEZPIECZEŃSTWA
     const { error } = await supabase
       .from('listings')
       .update({ 
-        title: title, 
-        category: category,
+        title, 
         price: parseFloat(price), 
         quantity: parseInt(quantity),
-        has_cites: cites,
-        description: description,
-        location: location,
-        gallery: finalGallery,       // Nadpisujemy galerię zaktualizowaną listą
-        image_url: finalImageUrl     // Ustawiamy pierwsze zdjęcie jako główną miniaturkę
+        condition: isAccessory ? condition : null,
+        has_cites: isAccessory ? false : cites,
+        description,
+        gallery: finalGallery,
+        image_url: finalImageUrl 
       })
       .eq('id', adId);
 
@@ -136,110 +158,141 @@ export default function EdytujOgloszenie() {
     setSaving(false);
   };
 
+  const selectedCatInfo = dbCategories.find(c => c.name === category);
+  const isAccessory = selectedCatInfo ? !selectedCatInfo.requires_species : false;
+
   if (loading) return <div className="p-20 text-center font-bold text-gray-400">Wczytywanie danych do edycji...</div>;
 
   return (
-    <main className="p-6 md:p-10 max-w-2xl mx-auto mt-10 bg-white rounded-xl shadow-md border mb-20">
-      <h1 className="text-3xl font-bold mb-8 text-center text-gray-800">Edytuj Ogłoszenie</h1>
+    <main className="p-6 md:p-10 max-w-4xl mx-auto mt-10 bg-white rounded-xl shadow-md border mb-20 relative">
+      <h1 className="text-3xl font-black mb-8 text-gray-900 border-b pb-4">Edytuj Ogłoszenie</h1>
       
-      <form onSubmit={handleUpdate} className="space-y-5">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <div className="md:col-span-3">
-            <label className="block text-sm font-bold text-gray-700 mb-1">Tytuł ogłoszenia</label>
-            <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Kategoria</label>
-            <select value={category} onChange={e => setCategory(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
-              <option value="Gady">Gady</option>
-              <option value="Płazy">Płazy</option>
-              <option value="Pajęczaki">Pajęczaki</option>
-              <option value="Owady karmowe">Owady karmowe</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Cena (PLN)</label>
-            <input type="number" value={price} onChange={e => setPrice(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Dostępna ilość (szt.)</label>
-            <input type="number" min="1" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">Lokalizacja (Miasto)</label>
-          <input type="text" value={location} onChange={e => setLocation(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
-        </div>
-
-        <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1">Opis zwierzaka</label>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={5} className="w-full border bg-gray-50 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y" required />
-        </div>
-
-        {/* --- SEKCJA EDYCJI ZDJĘĆ --- */}
-        <div className="p-4 border border-gray-200 rounded-xl bg-gray-50 space-y-4">
-          <label className="block text-sm font-bold text-gray-700">Galeria zdjęć</label>
-          
-          {/* Wyświetlanie STARYCH zdjęć z opcją usunięcia */}
-          {existingGallery.length > 0 && (
-            <div>
-              <p className="text-xs text-gray-500 mb-2 font-medium">Obecne zdjęcia (kliknij X, aby usunąć):</p>
-              <div className="flex flex-wrap gap-3">
-                {existingGallery.map((url, index) => (
-                  <div key={index} className="relative w-20 h-20 rounded-lg overflow-hidden border-2 border-gray-200 group">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`Stare zdjęcie ${index}`} className="w-full h-full object-cover" />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveExistingImage(url)}
-                      className="absolute inset-0 bg-red-600/80 text-white font-bold opacity-0 group-hover:opacity-100 flex items-center justify-center transition"
-                    >
-                      X
-                    </button>
-                  </div>
-                ))}
-              </div>
+      <form onSubmit={handleUpdate} className="space-y-8 relative">
+        
+        {/* SEKCJA 1: PODSTAWY */}
+        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+           <h3 className="text-sm font-black uppercase text-gray-400 mb-4 tracking-widest">Podstawowe Informacje</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="lg:col-span-4">
+              <label className="block text-sm font-bold text-gray-700 mb-1">Tytuł ogłoszenia</label>
+              <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="w-full border border-gray-200 bg-white p-3 rounded-xl focus:ring-2 focus:ring-black outline-none font-medium" required />
             </div>
-          )}
 
-          {/* Dodawanie NOWYCH zdjęć */}
-          <div className="pt-2 border-t border-gray-200">
-            <p className="text-xs text-gray-500 mb-2 font-medium">Dodaj nowe zdjęcia do ogłoszenia:</p>
-            <input 
-              type="file" 
-              accept="image/*"
-              multiple 
-              onChange={e => {
-                if (e.target.files) {
-                  setNewImages(Array.from(e.target.files));
-                }
-              }} 
-              className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" 
-            />
-            {newImages.length > 0 && (
-              <p className="text-xs text-blue-600 font-bold mt-2">Wybrano {newImages.length} nowych zdjęć do wgrania.</p>
+            {/* ZABLOKOWANE POLE KATEGORII */}
+            <div className="lg:col-span-2">
+              <label className="block text-sm font-bold text-gray-700 mb-1">Kategoria</label>
+              <div className="w-full border border-gray-200 bg-gray-100 p-3 rounded-xl text-gray-500 font-bold flex justify-between items-center cursor-not-allowed">
+                <span>{category || "Ładowanie..."}</span>
+                <span title="Kategorii nie można zmienić po dodaniu ogłoszenia" className="text-lg">🔒</span>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2 font-bold uppercase tracking-wide">
+                Zmiana kategorii jest zablokowana ze względów bezpieczeństwa (CITES).
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Cena (PLN)</label>
+              <input type="number" value={price} onChange={e => setPrice(e.target.value)} className="w-full border border-gray-200 bg-white p-3 rounded-xl focus:ring-2 focus:ring-black outline-none font-black text-green-700" required />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1">Dostępnych (szt.)</label>
+              <input type="number" min="1" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full border border-gray-200 bg-white p-3 rounded-xl focus:ring-2 focus:ring-black outline-none font-bold" required />
+            </div>
+            
+            {isAccessory && (
+               <div className="lg:col-span-4 mt-2 p-4 bg-amber-50 rounded-xl border border-amber-200">
+                  <label className="block text-sm font-black text-amber-900 mb-2 uppercase tracking-widest">Stan przedmiotu</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-800"><input type="radio" name="condition" value="new" checked={condition === 'new'} onChange={e => setCondition(e.target.value)} className="w-5 h-5 accent-amber-600"/> Nowy</label>
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-800"><input type="radio" name="condition" value="used" checked={condition === 'used'} onChange={e => setCondition(e.target.value)} className="w-5 h-5 accent-amber-600"/> Używany</label>
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-800"><input type="radio" name="condition" value="broken" checked={condition === 'broken'} onChange={e => setCondition(e.target.value)} className="w-5 h-5 accent-amber-600"/> Uszkodzony</label>
+                  </div>
+               </div>
             )}
           </div>
         </div>
 
-        <div className="flex items-start gap-3 mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-          <input type="checkbox" checked={cites} onChange={e => setCites(e.target.checked)} id="cites" className="mt-1 w-4 h-4 text-blue-600 rounded" />
-          <label htmlFor="cites" className="text-sm text-gray-700 font-medium cursor-pointer">
-            Oświadczam, że zwierzę pochodzi z legalnego źródła i posiadam niezbędne dokumenty (np. CITES), jeśli są wymagane przez polskie prawo.
-          </label>
+        {/* SEKCJA 2: OPIS */}
+        <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 relative z-20">
+           <h3 className="text-sm font-black uppercase text-gray-400 mb-4 tracking-widest">Opis</h3>
+           <textarea value={description} onChange={e => setDescription(e.target.value)} rows={6} className="w-full border border-gray-200 bg-white p-4 rounded-xl focus:ring-2 focus:ring-black outline-none resize-y" required placeholder="Opisz dokładnie swój przedmiot lub zwierzę..." />
         </div>
 
-        <button type="submit" disabled={saving} className="w-full bg-blue-600 text-white p-4 rounded-xl hover:bg-blue-700 font-bold text-lg disabled:bg-gray-400 transition shadow-md">
-          {saving ? 'Zapisywanie...' : 'Zapisz zmiany'}
+        {/* SEKCJA 3: ZARZĄDZANIE ZDJĘCIAMI */}
+        <div className="p-6 border-2 border-gray-100 rounded-2xl bg-white shadow-sm relative z-10">
+          <h3 className="text-sm font-black uppercase text-gray-400 mb-4 tracking-widest">Galeria (Wybierz Miniaturkę)</h3>
+          
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            
+            {/* Wyświetlanie STARYCH zdjęć */}
+            {existingGallery.map(url => (
+              <div key={url} className={`relative aspect-square rounded-2xl overflow-hidden border-4 transition-all duration-300 ${thumbnailUrl === url ? 'border-yellow-400 shadow-lg scale-105 z-10' : 'border-gray-100'}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt="Zapisane" className="w-full h-full object-cover" />
+                
+                {thumbnailUrl === url && (
+                  <div className="absolute top-2 left-2 bg-yellow-400 text-yellow-900 text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider">Miniaturka</div>
+                )}
+
+                <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 backdrop-blur-sm">
+                  {thumbnailUrl !== url && (
+                     <button type="button" onClick={() => setThumbnailUrl(url)} className="bg-white text-black text-[10px] uppercase font-black px-3 py-2 rounded-lg hover:bg-yellow-400 transition w-3/4">⭐ Miniaturka</button>
+                  )}
+                  <button type="button" onClick={() => handleRemoveExistingImage(url)} className="bg-red-600 text-white text-[10px] uppercase font-black px-3 py-2 rounded-lg hover:bg-red-700 transition w-3/4">🗑️ Usuń</button>
+                </div>
+              </div>
+            ))}
+
+            {/* NOWOŚĆ: Wyświetlanie NOWYCH zdjęć z możliwością ustawienia miniatury */}
+            {newImagePreviews.map((item, index) => (
+              <div key={item.url} className={`relative aspect-square rounded-2xl overflow-hidden border-4 transition-all duration-300 ${thumbnailUrl === item.url ? 'border-yellow-400 shadow-lg scale-105 z-10' : 'border-blue-400 border-dashed opacity-90'}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={item.url} alt="Nowe" className="w-full h-full object-cover" />
+                
+                {thumbnailUrl === item.url ? (
+                   <div className="absolute top-2 left-2 bg-yellow-400 text-yellow-900 text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider">Miniaturka</div>
+                ) : (
+                   <div className="absolute top-2 left-2 bg-blue-600 text-white text-[10px] font-black px-2 py-1 rounded shadow-sm uppercase tracking-wider animate-pulse">Nowe</div>
+                )}
+                
+                <div className="absolute inset-0 bg-black/60 opacity-0 hover:opacity-100 transition flex flex-col items-center justify-center gap-2 backdrop-blur-sm">
+                  {thumbnailUrl !== item.url && (
+                     <button type="button" onClick={() => setThumbnailUrl(item.url)} className="bg-white text-black text-[10px] uppercase font-black px-3 py-2 rounded-lg hover:bg-yellow-400 transition w-3/4">⭐ Miniaturka</button>
+                  )}
+                  <button type="button" onClick={() => handleRemoveNewImage(index)} className="bg-red-600 text-white text-[10px] uppercase font-black px-3 py-2 rounded-lg hover:bg-red-700 w-3/4">🗑️ Usuń z kolejki</button>
+                </div>
+              </div>
+            ))}
+            
+            {/* Przycisk dodawania */}
+            <label className="cursor-pointer aspect-square rounded-2xl border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 transition-all">
+              <span className="text-4xl font-light mb-1">+</span>
+              <span className="text-xs font-black uppercase tracking-widest text-center px-2">Wybierz z dysku</span>
+              <input type="file" accept="image/*" multiple className="hidden" onChange={handleFileSelect} />
+            </label>
+
+          </div>
+        </div>
+
+        {/* SEKCJA 4: CITES (Ukrywamy jeśli to sprzęt) */}
+        {!isAccessory && (
+          <div className="flex items-start gap-4 bg-blue-50 p-5 rounded-2xl border border-blue-100">
+            <input type="checkbox" checked={cites} onChange={e => setCites(e.target.checked)} id="cites" className="mt-1 w-5 h-5 accent-blue-600 rounded" />
+            <label htmlFor="cites" className="text-sm text-blue-900 font-medium cursor-pointer leading-relaxed">
+              Oświadczam, że zwierzę pochodzi z legalnego źródła i posiadam niezbędne dokumenty (np. CITES), jeśli są wymagane przez polskie prawo.
+            </label>
+          </div>
+        )}
+
+        {/* PRZYCISK ZAPISU */}
+        <button type="submit" disabled={saving} className="w-full bg-black text-white p-5 rounded-2xl hover:bg-gray-800 font-black text-lg disabled:bg-gray-300 transition shadow-lg">
+          {saving ? 'Zapisywanie na serwerze...' : 'Zapisz wszystkie zmiany'}
         </button>
       </form>
 
       {message && (
-        <div className={`mt-6 p-4 rounded-lg text-sm text-center font-bold ${message.includes('Sukces') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+        <div className={`mt-6 p-4 rounded-xl text-sm text-center font-black uppercase tracking-widest ${message.includes('Sukces') ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'}`}>
           {message}
         </div>
       )}
