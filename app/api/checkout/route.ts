@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2023-10-16',
-});
+import crypto from 'crypto'; // Zamiast stripe dodajemy crypto do HotPaya
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +10,6 @@ const supabaseAdmin = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    // NOWOŚĆ: Odbieramy z Reacta zmienną `isSubscriptionChoice`
     const { userId, packageId, isSubscriptionChoice } = body; 
 
     if (!userId || !packageId) {
@@ -29,7 +24,7 @@ export async function POST(req: Request) {
 
     if (!selectedPackage) return NextResponse.json({ error: 'Nie znaleziono pakietu' }, { status: 404 });
 
-    // --- MATEMATYKA DOPŁAT I BAGAŻU (Zostaje jak była) ---
+    // --- MATEMATYKA DOPŁAT I BAGAŻU (Zostaje nietknięta!) ---
     let finalPricePln = selectedPackage.price_pln;
     let isUpgrade = false;
 
@@ -49,50 +44,35 @@ export async function POST(req: Request) {
 
     if (finalPricePln < 100) return NextResponse.json({ error: 'Błąd kalkulacji zniżki lub cena za niska' }, { status: 400 });
 
-    // --- NOWOŚĆ: INTELIGENTNY TRYB PŁATNOŚCI ---
-    // Subskrypcja odpala się TYLKO gdy to nie jest "pojedyncze ogłoszenie" ORAZ klient zaznaczył to na stronie.
-    const isSubscription = packageId !== 'single' && isSubscriptionChoice === true;
-    
-    const sessionConfig: Stripe.Checkout.SessionCreateParams = {
-      payment_method_types: ['card', 'blik'],
-      line_items: [
-        {
-          price_data: {
-            currency: 'pln',
-            product_data: {
-              name: isUpgrade ? `Dopłata (Upgrade): ${selectedPackage.name}` : selectedPackage.name,
-              description: isSubscription ? 'Abonament miesięczny (odnawialny).' : 'Dostęp na 30 dni (płatność jednorazowa).',
-            },
-            unit_amount: finalPricePln,
-            // Magia Stripe: doczepiamy recurring tylko, jeśli to faktycznie subskrypcja
-            ...(isSubscription ? { recurring: { interval: 'month' } } : {}), 
-          },
-          quantity: 1,
-        },
-      ],
-      // Zmieniamy tryb kasy w zależności od wyboru klienta
-      mode: isSubscription ? 'subscription' : 'payment',
-      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dodaj-ogloszenie?success=true`,
-      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/dodaj-ogloszenie?canceled=true`,
-    };
+    // --- NOWOŚĆ: INTEGRACJA Z HOTPAY ---
+    const sekret = process.env.HOTPAY_SECRET;
+    const haslo = process.env.HOTPAY_PASSWORD;
 
-    const myMetadata = {
-      supabase_user_id: userId,
-      new_limit: targetLimit.toString(),
-      update_type: packageId === 'single' ? 'add' : 'replace'
-    };
-
-    if (isSubscription) {
-      sessionConfig.subscription_data = { metadata: myMetadata };
-    } else {
-      sessionConfig.metadata = myMetadata;
+    if (!sekret || !haslo) {
+      throw new Error("Brak kluczy HotPay na serwerze Vercel");
     }
 
-    const session = await stripe.checkout.sessions.create(sessionConfig);
-    return NextResponse.json({ url: session.url });
+    // Stripe używa groszy (np. 1500), HotPay używa złotówek (np. "15.00")
+    const kwota = (finalPricePln / 100).toFixed(2);
+    const nazwa_uslugi = isUpgrade ? `Dopłata (Upgrade): ${selectedPackage.name}` : selectedPackage.name;
+    
+    // Tworzymy unikalne ID zamówienia dla tego pakietu (np. PKG_abc12_vip)
+    const orderId = `PKG_${userId.slice(0, 5)}_${packageId}`;
+    
+    // Adres, na który bank wyrzuci klienta po zapłacie
+    const adres_www = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/dodaj-ogloszenie?success=true`;
+
+    // Budujemy Hash dla bezpieczeństwa
+    const stringToHash = `${haslo};${kwota};${nazwa_uslugi};${adres_www};${orderId};${sekret}`;
+    const hash = crypto.createHash('sha256').update(stringToHash).digest('hex');
+
+    // Generujemy link do banku
+    const paymentUrl = `https://platnosc.hotpay.pl/?SEKRET=${sekret}&KWOTA=${kwota}&NAZWA_USLUGI=${encodeURIComponent(nazwa_uslugi)}&ADRES_WWW=${encodeURIComponent(adres_www)}&ID_ZAMOWIENIA=${orderId}&HASH=${hash}`;
+
+    return NextResponse.json({ url: paymentUrl });
     
   } catch (err: any) {
-    console.error('❌ BŁĄD STRIPE:', err);
+    console.error('❌ BŁĄD HOTPAY:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
