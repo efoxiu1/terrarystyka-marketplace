@@ -12,52 +12,42 @@ export async function POST(req: Request) {
     const rawBody = await req.text();
     const params = new URLSearchParams(rawBody);
     
+    // 1. Odbieramy wszystkie parametry od kuriera (HotPay)
     const kwota = params.get('KWOTA') || '';
     const id_zamowienia = params.get('ID_ZAMOWIENIA') || '';
     const id_platnosci = params.get('ID_PLATNOSCI') || '';
     const status = params.get('STATUS') || ''; 
-    const sekret = params.get('SEKRET') || '';
+    const sekret_uslugi = params.get('SEKRET') || '';
     const secure = params.get('SECURE') || ''; 
     const hash_od_hotpay = params.get('HASH') || '';
 
-    // WLEP SWOJE HASŁO TUTAJ
-    const haslo = "haslo123";
+    // Pobieramy bezpiecznie hasło z Vercela
+    const haslo_notyfikacji = process.env.HOTPAY_PASSWORD;
 
-    // Czasem HotPay wymusza dwa zera po przecinku do hasha, nawet jak wysyła liczbę całkowitą
-    const kwotaZPrzecinkiem = parseFloat(kwota).toFixed(2);
-
-    // 🔥 KRYPTOGRAFICZNY WYTRYCH: Generujemy wszystkie znane kombinacje API
-    const wariantyHasha: Record<string, string> = {
-        "V1_Dokumentacja": `${haslo};${kwota};${id_platnosci};${id_zamowienia};${status};${sekret}`,
-        "V2_Z_Kropka": `${haslo};${kwotaZPrzecinkiem};${id_platnosci};${id_zamowienia};${status};${sekret}`,
-        "V3_Z_Secure": `${haslo};${kwota};${id_platnosci};${id_zamowienia};${status};${secure};${sekret}`,
-        "V4_Z_Secure_I_Kropka": `${haslo};${kwotaZPrzecinkiem};${id_platnosci};${id_zamowienia};${status};${secure};${sekret}`,
-        "V5_Stare_API": `${haslo};${kwota};${id_zamowienia};${id_platnosci};${status};${sekret}`
-    };
-
-    let pasujacyWariant = null;
-
-    // Przeszukujemy nasze kombinacje, żeby złamać szyfr banku
-    for (const [nazwaWariantu, stringDoSzyfrowania] of Object.entries(wariantyHasha)) {
-        const obliczonyHash = crypto.createHash('sha256').update(stringDoSzyfrowania).digest('hex');
-        
-        if (obliczonyHash === hash_od_hotpay) {
-            pasujacyWariant = nazwaWariantu;
-            break;
-        }
+    if (!haslo_notyfikacji) {
+      console.error("❌ BŁĄD SERWERA: Brak HOTPAY_PASSWORD w zmiennych środowiskowych!");
+      return new Response('ERROR_ENV', { status: 500 });
     }
 
-    // Jeśli żaden nie pasuje, to znaczy, że hasło jest na 100% błędne
-    if (!pasujacyWariant) {
-      console.error('❌ ŻADEN WARIANT NIE ZADZIAŁAŁ! Sprawdź, czy hasło na pewno jest prawidłowe.');
+    // 2. TWORZENIE HASHA - WZÓR V3 (Zwycięzca!)
+    // HASŁO ; KWOTA ; ID_PLATNOSCI ; ID_ZAMOWIENIA ; STATUS ; SECURE ; SEKRET
+    const stringToHash = `${haslo_notyfikacji.trim()};${kwota.trim()};${id_platnosci.trim()};${id_zamowienia.trim()};${status.trim()};${secure.trim()};${sekret_uslugi.trim()}`;
+    const calculatedHash = crypto.createHash('sha256').update(stringToHash).digest('hex');
+
+    if (calculatedHash !== hash_od_hotpay) {
+      console.error('❌ BŁĄD OCHRONY: Hash się nie zgadza (Ktoś próbuje nas oszukać!)');
       return new Response('ERROR_HASH', { status: 400 }); 
     }
 
-    console.log(`🔓 SUKCES! Złamaliśmy ich API. Pasujący wzór to: ${pasujacyWariant}`);
-
-    // --- MAGIA BAZY DANYCH (Jeśli przejdzie zabezpieczenia) ---
+    // 3. LOGIKA BIZNESOWA (Wydanie towaru)
     if (status === 'SUCCESS') {
-        const { data: order } = await supabaseAdmin.from('orders').select('*').eq('id', id_zamowienia).single();
+        console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}, Kwota: ${kwota} PLN`);
+        
+        const { data: order } = await supabaseAdmin
+          .from('orders')
+          .select('*')
+          .eq('id', id_zamowienia)
+          .single();
   
         if (order && order.user_id) {
             const newLimit = order.new_limit || 10; 
@@ -65,20 +55,27 @@ export async function POST(req: Request) {
             let finalLimit = newLimit;
     
             if (updateType === 'add') {
-                const { data: profile } = await supabaseAdmin.from('profiles').select('max_active_listings').eq('id', order.user_id).single();
+                const { data: profile } = await supabaseAdmin
+                  .from('profiles')
+                  .select('max_active_listings')
+                  .eq('id', order.user_id)
+                  .single();
+                  
                 finalLimit = (profile?.max_active_listings || 2) + newLimit; 
             }
     
+            // Aktualizujemy profil i zamówienie
             await supabaseAdmin.from('profiles').update({ max_active_listings: finalLimit }).eq('id', order.user_id);
             await supabaseAdmin.from('orders').update({ status: 'paid', hotpay_id: id_platnosci }).eq('id', id_zamowienia);
-            console.log('✅ Baza zaktualizowana pomyslnie!');
+            console.log('✅ Baza danych zaktualizowana. Klient dostał swój pakiet!');
         }
     }
 
+    // 4. Potwierdzamy odbiór (HotPay tego wymaga)
     return new Response('OK', { status: 200 });
 
   } catch (err: any) {
-    console.error('❌ BŁĄD WEBHOOKA:', err.message);
+    console.error('❌ BŁĄD WEBHOOKA KRYTYCZNY:', err.message);
     return new Response('ERROR', { status: 500 });
   }
 }
