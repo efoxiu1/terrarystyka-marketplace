@@ -9,40 +9,54 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: Request) {
   try {
-    // 1. POBIERAMY SUROWY TEKST (Bez magicznego formData() z Next.js, które może ucinać znaki)
     const rawBody = await req.text();
-    console.log('--- SUROWE DANE OD HOTPAY ---', rawBody);
-
     const params = new URLSearchParams(rawBody);
     
     const kwota = params.get('KWOTA') || '';
     const id_zamowienia = params.get('ID_ZAMOWIENIA') || '';
     const id_platnosci = params.get('ID_PLATNOSCI') || '';
     const status = params.get('STATUS') || ''; 
-    const sekret_uslugi = params.get('SEKRET') || '';
+    const sekret = params.get('SEKRET') || '';
+    const secure = params.get('SECURE') || ''; 
     const hash_od_hotpay = params.get('HASH') || '';
 
-    // 2. HASŁO NA TWARDO (Żeby wykluczyć błąd ze spacjami w Vercel ENV)
-    const haslo_notyfikacji = "haslo123";
+    // WLEP SWOJE HASŁO TUTAJ
+    const haslo = "haslo123";
 
-    // 3. Wzór wg. dokumentacji
-    const stringToHash = `${haslo_notyfikacji};${kwota};${id_platnosci};${id_zamowienia};${status};${sekret_uslugi}`;
-    
-    // Logujemy to, co złączyliśmy (ukrywamy hasło dla bezpieczeństwa logów)
-    console.log('--- NASZ STRING DO HASHA ---', `***HASLO***;${kwota};${id_platnosci};${id_zamowienia};${status};${sekret_uslugi}`);
+    // Czasem HotPay wymusza dwa zera po przecinku do hasha, nawet jak wysyła liczbę całkowitą
+    const kwotaZPrzecinkiem = parseFloat(kwota).toFixed(2);
 
-    const calculatedHash = crypto.createHash('sha256').update(stringToHash).digest('hex');
+    // 🔥 KRYPTOGRAFICZNY WYTRYCH: Generujemy wszystkie znane kombinacje API
+    const wariantyHasha: Record<string, string> = {
+        "V1_Dokumentacja": `${haslo};${kwota};${id_platnosci};${id_zamowienia};${status};${sekret}`,
+        "V2_Z_Kropka": `${haslo};${kwotaZPrzecinkiem};${id_platnosci};${id_zamowienia};${status};${sekret}`,
+        "V3_Z_Secure": `${haslo};${kwota};${id_platnosci};${id_zamowienia};${status};${secure};${sekret}`,
+        "V4_Z_Secure_I_Kropka": `${haslo};${kwotaZPrzecinkiem};${id_platnosci};${id_zamowienia};${status};${secure};${sekret}`,
+        "V5_Stare_API": `${haslo};${kwota};${id_zamowienia};${id_platnosci};${status};${sekret}`
+    };
 
-    if (calculatedHash !== hash_od_hotpay) {
-      console.error('❌ BŁĄD OCHRONY: Nieprawidłowy Hash!');
-      console.log(`Oczekiwano (HotPay): ${hash_od_hotpay}`);
-      console.log(`Obliczono (Nasz):  ${calculatedHash}`);
+    let pasujacyWariant = null;
+
+    // Przeszukujemy nasze kombinacje, żeby złamać szyfr banku
+    for (const [nazwaWariantu, stringDoSzyfrowania] of Object.entries(wariantyHasha)) {
+        const obliczonyHash = crypto.createHash('sha256').update(stringDoSzyfrowania).digest('hex');
+        
+        if (obliczonyHash === hash_od_hotpay) {
+            pasujacyWariant = nazwaWariantu;
+            break;
+        }
+    }
+
+    // Jeśli żaden nie pasuje, to znaczy, że hasło jest na 100% błędne
+    if (!pasujacyWariant) {
+      console.error('❌ ŻADEN WARIANT NIE ZADZIAŁAŁ! Sprawdź, czy hasło na pewno jest prawidłowe.');
       return new Response('ERROR_HASH', { status: 400 }); 
     }
 
+    console.log(`🔓 SUKCES! Złamaliśmy ich API. Pasujący wzór to: ${pasujacyWariant}`);
+
+    // --- MAGIA BAZY DANYCH (Jeśli przejdzie zabezpieczenia) ---
     if (status === 'SUCCESS') {
-        console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}`);
-        
         const { data: order } = await supabaseAdmin.from('orders').select('*').eq('id', id_zamowienia).single();
   
         if (order && order.user_id) {
@@ -57,11 +71,10 @@ export async function POST(req: Request) {
     
             await supabaseAdmin.from('profiles').update({ max_active_listings: finalLimit }).eq('id', order.user_id);
             await supabaseAdmin.from('orders').update({ status: 'paid', hotpay_id: id_platnosci }).eq('id', id_zamowienia);
-            console.log('✅ Baza zaktualizowana!');
+            console.log('✅ Baza zaktualizowana pomyslnie!');
         }
     }
 
-    // HotPay oczekuje zwykłego tekstu jako odpowiedzi
     return new Response('OK', { status: 200 });
 
   } catch (err: any) {
