@@ -107,12 +107,12 @@ if (orderItems && orderItems.length > 0) {
             .single();
 
         if (orderData && orderData.user_id) {
-            // Krok B: Wyciągamy same ID ogłoszeń (listing_id) do jednej tablicy
-            // np. ['id-jaszczurki', 'id-karmy']
-            const purchasedListingIds = orderItems
-                .map(item => item.listing_id)
-                .filter(id => id !== null);
-
+          // Krok B: Wyciągamy same ID ogłoszeń (listing_id) do jednej tablicy
+        // TypeScript FIX: Jeśli orderItems jest null, użyj pustej tablicy []
+        const purchasedListingIds = (orderItems || [])
+            .map(item => item.listing_id)
+            .filter(id => id !== null);
+            
             // Krok C: Kasujemy z koszyka TYLKO zakupione przedmioty
             if (purchasedListingIds.length > 0) {
                 const { error: cartError } = await supabaseAdmin
