@@ -118,7 +118,8 @@ export default function Checkout() {
     // Jeśli mapa się pojawi i mamy do niej dostęp przez ref
     if (widgetRef.current) {
       // Ustawiamy atrybuty ręcznie - to omija błąd "only a getter"
-widget.setAttribute('language', 'pl');
+      const widget = widgetRef.current;
+  widget.setAttribute('language', 'pl');
     widget.setAttribute('config', 'parcelCollect'); // To wyłącza configname=null
     widget.setAttribute('token', ''); // Pusty string zamiast null
     }
