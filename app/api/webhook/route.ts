@@ -64,27 +64,39 @@ export async function POST(req: Request) {
         }
 
         // 3. NOWE: Aktualizujemy konkretne ogłoszenia
-        if (orderItems && orderItems.length > 0) {
-            for (const item of orderItems) {
-                if (item.listing_id) {
-                    const { error: listingError } = await supabaseAdmin
-                        .from('listings')
-                        .update({ is_active: false })
-                        .eq('id', item.listing_id);
-                        
-                    if (listingError) {
-                        console.error(`❌ BŁĄD SUPABASE (UKRYWANIE OGŁOSZENIA ${item.listing_id}):`, listingError);
-                    }
-                }
+        // 3. AKTUALIZACJA STANÓW MAGAZYNOWYCH
+if (orderItems && orderItems.length > 0) {
+    for (const item of orderItems) {
+        if (item.listing_id) {
+            // 1. Najpierw pobieramy aktualny stan, żeby wiedzieć ile odjąć
+            const { data: listing } = await supabaseAdmin
+                .from('listings')
+                .select('quantity')
+                .eq('id', item.listing_id)
+                .single();
+
+            if (listing) {
+                const currentStock = listing.quantity || 0;
+                const newStock = Math.max(0, currentStock - item.quantity); // Nie schodzimy poniżej zera
+
+                // 2. Aktualizujemy stan i opcjonalnie wyłączamy, jeśli spadło do 0
+                await supabaseAdmin
+                    .from('listings')
+                    .update({ 
+                        quantity: newStock,
+                        // Jeśli chcesz, żeby ogłoszenie znikało dopiero gdy braknie towaru:
+                    })
+                    .eq('id', item.listing_id);
+                
+                console.log(`📦 Zaktualizowano magazyn dla ${item.listing_id}: ${currentStock} -> ${newStock}`);
             }
-            console.log(`🛒 Przetworzono ${orderItems.length} przedmiotów z koszyka!`);
-        } else {
-            console.log(`⚠️ UWAGA: Koszyk dla zamówienia ${id_zamowienia} wydał się pusty!`);
         }
+    }
+}
 
         console.log('✅ Skrypt webhooka dotarł do końca!');
     }
-    
+
     // 4. Potwierdzamy odbiór (HotPay tego wymaga)
     return new Response('OK', { status: 200 });
 
