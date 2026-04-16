@@ -160,6 +160,21 @@ const handleApproveSpecies = async (listing: any) => {
     
     alert('Sukces! Gatunek wpisany do słownika i powiązany z kategorią!');
   };
+  const toggleCategoryStatus = async (id: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from('categories')
+      .update({ is_active: !currentStatus })
+      .eq('id', id);
+
+    if (error) {
+      alert('Błąd podczas zmiany statusu: ' + error.message);
+    } else {
+      // Aktualizujemy lokalny stan, żeby zmiana była widoczna od razu (szary kolor/kolor)
+      setCategories(categories.map(c => 
+        c.id === id ? { ...c, is_active: !currentStatus } : c
+      ));
+    }
+  };
   const handleRejectSpecies = async (listing: any) => {
     if (!window.confirm(`Czy na pewno chcesz odrzucić propozycję gatunku "${listing.custom_species_name}"? To odrzuci WSZYSTKIE ogłoszenia z tą nazwą.`)) return;
 
@@ -235,7 +250,39 @@ const handleAddCategory = async (e: React.FormEvent) => {
       setIsBigFlag(false); // <-- CZYŚCIMY STAN PO DODANIU
     }
   };
+  const toggleSuggestion = async (sourceId: string, suggestedId: string) => {
+    // 1. Sprawdzamy w lokalnym stanie, czy takie powiązanie już istnieje
+    const exists = suggestions.find(
+      s => s.source_category_id === sourceId && s.suggested_category_id === suggestedId
+    );
 
+    if (exists) {
+      // 2. Jeśli istnieje - usuwamy z bazy (odznaczony checkbox)
+      const { error } = await supabase
+        .from('category_suggestions')
+        .delete()
+        .eq('id', exists.id);
+
+      if (!error) {
+        setSuggestions(suggestions.filter(s => s.id !== exists.id));
+      }
+    } else {
+      // 3. Jeśli nie istnieje - tworzymy nowe powiązanie
+      const { data, error } = await supabase
+        .from('category_suggestions')
+        .insert([{
+          source_category_id: sourceId,
+          suggested_category_id: suggestedId
+        }])
+        .select()
+        .single();
+
+      if (data) {
+        setSuggestions([...suggestions, data]);
+      }
+      if (error) alert('Błąd cross-sellingu: ' + error.message);
+    }
+  };
   // 1. Odpalenie trybu edycji
   const startEditingCategory = (cat: any) => {
     setEditingCategoryId(cat.id);

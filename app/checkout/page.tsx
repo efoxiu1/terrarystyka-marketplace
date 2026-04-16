@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
 import Script from 'next/script';
 
 export default function Checkout() {
+  const widgetRef = useRef<any>(null);
   const router = useRouter();
-  
+  const InpostGeowidgetTag = 'inpost-geowidget' as any;
   // NOWE STANY MULTI-VENDOR
   const [groupedPackages, setGroupedPackages] = useState<any>({});
   const [shippingOptionsPerPackage, setShippingOptionsPerPackage] = useState<any>({});
@@ -113,6 +114,14 @@ export default function Checkout() {
     return () => window.removeEventListener('inpost.geowidget.point.select', handlePointSelect);
   }, [isMapOpenForSeller]);
   // Funkcja zmieniająca metodę dostawy dla konkretnej paczki
+  useEffect(() => {
+    // Jeśli mapa się pojawi i mamy do niej dostęp przez ref
+    if (widgetRef.current) {
+      // Ustawiamy atrybuty ręcznie - to omija błąd "only a getter"
+      widgetRef.current.setAttribute('language', 'pl');
+      widgetRef.current.setAttribute('config', 'parcelCollect');
+    }
+  }, [isMapOpenForSeller]); // Odpali się, gdy otworzysz modal z mapą
   const handleMethodChange = (sellerId: string, methodCode: string) => {
     setSelectedMethods({ ...selectedMethods, [sellerId]: methodCode });
   };
@@ -415,12 +424,13 @@ export default function Checkout() {
             </div>
             
             <div className="flex-1 w-full h-full relative">
-              {/* @ts-ignore */}
-              <inpost-geowidget 
-                language="pl" 
-                config="parcelCollect" 
+              {/* Teraz używamy zmiennej zamiast surowego tagu */}
+              <div className="flex-1 w-full h-full relative">
+              <InpostGeowidgetTag 
+                ref={widgetRef} 
                 style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-              ></inpost-geowidget>
+              ></InpostGeowidgetTag>
+            </div>
             </div>
           </div>
         </div>
