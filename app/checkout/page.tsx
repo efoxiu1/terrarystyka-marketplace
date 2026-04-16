@@ -154,7 +154,7 @@ export default function Checkout() {
             order_id: order.id,
             listing_id: listing?.id,
             quantity: item.quantity || 1,
-            unit_price: finalPrice
+            price_at_purchase: finalPrice
           };
 
           // RENTGEN - Wyświetlamy dokładnie to, co leci do bazy!
