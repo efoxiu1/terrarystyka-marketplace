@@ -242,10 +242,11 @@ export default function Checkout() {
   return (
     <main className="max-w-5xl mx-auto p-6 mt-10 mb-20">
       <link rel="stylesheet" href="https://geowidget.inpost.pl/inpost-geowidget.css" />
-      <Script 
-  src="https://geowidget.inpost.pl/inpost-geowidget.js" 
-  strategy="beforeInteractive" // Spróbuj załadować go wcześniej
-/>
+       <Script 
+        src="https://geowidget.inpost.pl/inpost-geowidget.js" 
+        strategy="afterInteractive" 
+      />
+      <link rel="stylesheet" href="https://geowidget.inpost.pl/inpost-geowidget.css" />
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-12">
         
         {/* LEWA STRONA (FORMULARZ I PACZKI) */}
@@ -419,27 +420,34 @@ export default function Checkout() {
 
       </div>
       {isMapOpenForSeller && (
-        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-4xl h-[80vh] rounded-3xl overflow-hidden flex flex-col relative animate-in zoom-in-95">
-            <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
-              <h3 className="font-black">
-                Znajdź Paczkomat (Dla paczki od {groupedPackages[isMapOpenForSeller]?.seller?.username})
-              </h3>
-              <button type="button" onClick={() => setIsMapOpenForSeller(null)} className="text-2xl font-black hover:scale-110 transition">✕</button>
-            </div>
-            
-            <div className="flex-1 w-full h-full relative">
-              {/* Teraz używamy zmiennej zamiast surowego tagu */}
-              <div className="flex-1 w-full h-full relative">
-              <InpostGeowidgetTag 
-                ref={widgetRef} 
-                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-              ></InpostGeowidgetTag>
-            </div>
-            </div>
-          </div>
-        </div>
-      )}
+  <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="bg-white w-full max-w-4xl h-[80vh] rounded-3xl overflow-hidden flex flex-col relative animate-in zoom-in-95">
+      
+      {/* NAGŁÓWEK MODALA */}
+      <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
+        <h3 className="font-black">
+          Znajdź Paczkomat (Dla: {groupedPackages[isMapOpenForSeller]?.seller?.username})
+        </h3>
+        <button type="button" onClick={() => setIsMapOpenForSeller(null)} className="text-2xl font-black hover:scale-110 transition">✕</button>
+      </div>
+      
+      {/* MAPA - OPCJA ATOMOWA */}
+      <div 
+        className="flex-1 w-full h-full relative"
+        dangerouslySetInnerHTML={{
+          __html: `
+            <inpost-geowidget 
+              language="pl" 
+              config="parcelCollect" 
+              token=""
+              style="width: 100%; height: 100%; display: block;"
+            ></inpost-geowidget>
+          `
+        }}
+      />
+    </div>
+  </div>
+)}
     </main>
   );
 }
