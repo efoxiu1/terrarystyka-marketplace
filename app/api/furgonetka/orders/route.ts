@@ -32,7 +32,7 @@ export async function GET(req: Request) {
       .eq('status', 'paid');
 
     if (error) throw error;
-
+    
     // 3. TUTAJ ZACZYNA SIĘ MAGIA: Tłumaczymy naszą bazę na język Furgonetki
     // Furgonetka wymaga bardzo konkretnego formatu JSON.
     const furgonetkaOrders = orders.map((order) => {

@@ -48,6 +48,7 @@ export default function DodajOgloszenie() {
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const [allowBuyNow, setAllowBuyNow] = useState(false);
+  
   // Tablica przechowująca warianty. Używamy Date.now() jako tymczasowego ID dla Reacta
  const [variants, setVariants] = useState<{
   id: number, 
@@ -208,7 +209,7 @@ const handleCategorySelect = (mainCat: any, hasChildren: boolean) => {
   // --- LOGIKA GATUNKÓW I FORMULARZA ---
   const selectedCategoryData = dbCategories.find(c => c.name === category);
   const needsSpecies = selectedCategoryData?.requires_species ?? true;
-
+  const isCategoryBig = selectedCategoryData?.is_big ?? false;
   const selectedSpeciesData = speciesList.find(s => s.id === selectedSpeciesId);
   const isCustom = selectedSpeciesId === 'other';
   const isBlocked = needsSpecies && selectedSpeciesData && (selectedSpeciesData.is_igo || selectedSpeciesData.is_dangerous);
@@ -225,7 +226,49 @@ const handleCategorySelect = (mainCat: any, hasChildren: boolean) => {
       setPreviews(prev => [...prev, ...newPreviews]);
     }
   };
+  // --- DYNAMICZNY ANALIZATOR LOGISTYKI ---
+  const getShippingTier = () => {
+    if (isCategoryBig) return 'pallet';
+    if (!allowBuyNow) return 'none';
 
+    // --- KONFIGURACJA BUFORA ---
+    const BUFFER_CM = 2;   // Dodajemy 2 cm na karton i folię bąbelkową
+    const BUFFER_KG = 0.3; // Dodajemy 300g na wagę opakowania i wypełniaczy
+
+    const itemsToCheck = variants.length > 0 
+      ? variants.map(v => ({ 
+          w: (parseFloat(v.weight)||0) + BUFFER_KG, 
+          x: (parseInt(v.length)||0) + BUFFER_CM, 
+          y: (parseInt(v.width)||0) + BUFFER_CM, 
+          z: (parseInt(v.height)||0) + BUFFER_CM 
+        }))
+      : [{ 
+          w: (parseFloat(weight)||0) + BUFFER_KG, 
+          x: (parseInt(dimLength)||0) + BUFFER_CM, 
+          y: (parseInt(dimWidth)||0) + BUFFER_CM, 
+          z: (parseInt(dimHeight)||0) + BUFFER_CM 
+        }];
+
+    let maxTier = 'inpost';
+
+    for (const item of itemsToCheck) {
+      if (item.w <= BUFFER_KG && item.x <= BUFFER_CM) continue;
+
+      const sides = [item.x, item.y, item.z].sort((a, b) => b - a);
+
+      // Limity Paletowe (>30kg lub boki)
+      if (item.w > 30 || sides[0] > 120 || (sides[0] + sides[1] + sides[2]) > 220) {
+        return 'pallet';
+      }
+
+      // Limity Kuriera (Paczkomat InPost Gabaryt C: 64x41x38, waga 25kg)
+      if (item.w > 25 || sides[0] > 64 || sides[1] > 41 || sides[2] > 38) {
+        maxTier = 'courier';
+      }
+    }
+    return maxTier;
+  };
+  const shippingTier = getShippingTier();
   // --- WYSYŁKA FORMULARZA (Z obsługą wielu zdjęć!) ---
 const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -289,6 +332,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         cites_certificate: selectedSpeciesData?.cites_appendix === 'A' && needsSpecies ? citesCertificate : null,
         status: adStatus,
         allow_buy_now: allowBuyNow, // <--- Zapisujemy decyzję użytkownika
+        is_big: isCategoryBig,
         image_url: uploadedImageUrls.length > 0 ? uploadedImageUrls[0] : null,
         weight: variants.length === 0 ? parseFloat(weight) || 0 : null,
         dim_length: variants.length === 0 ? parseInt(dimLength) || 0 : null,
@@ -619,6 +663,43 @@ const handleSubmit = async (e: React.FormEvent) => {
           {/* DYNAMICZNA LISTA WARIANTÓW (Pojawia się tylko gdy Kup Teraz jest ON) */}
           {allowBuyNow && (
             <div className="mt-6 border-t border-gray-200 pt-6 animate-in fade-in slide-in-from-top-4">
+              {/* --- DYNAMICZNY ANALIZATOR LOGISTYKI --- */}
+              {shippingTier !== 'none' && (
+                <div className={`mb-6 p-4 rounded-xl border-2 flex items-start gap-4 shadow-sm transition-all duration-300 ${
+                  shippingTier === 'pallet' ? 'bg-red-50 border-red-200' :
+                  shippingTier === 'courier' ? 'bg-amber-50 border-amber-200' :
+                  'bg-green-50 border-green-200'
+                }`}>
+                  <span className="text-4xl mt-1">
+                    {shippingTier === 'pallet' ? '🏗️' : shippingTier === 'courier' ? '🚚' : '📦'}
+                  </span>
+                  <div>
+                    <p className={`font-black text-sm uppercase tracking-widest mb-1 ${
+                      shippingTier === 'pallet' ? 'text-red-900' :
+                      shippingTier === 'courier' ? 'text-amber-900' :
+                      'text-green-900'
+                    }`}>
+                      {shippingTier === 'pallet' ? 'Wysyłka Paletowa / Gabaryt' :
+                       shippingTier === 'courier' ? 'Tylko Kurier pod drzwi' :
+                       'Zmieści się w Paczkomacie!'}
+                    </p>
+                    <p className={`text-xs font-medium leading-relaxed ${
+                      shippingTier === 'pallet' ? 'text-red-800' :
+                      shippingTier === 'courier' ? 'text-amber-800' :
+                      'text-green-800'
+                    }`}>
+                      {shippingTier === 'pallet' 
+                        ? (isCategoryBig 
+                            ? 'Ta kategoria wymusza transport specjalistyczny (paleta/gabaryt). Tani kurierzy i paczkomaty będą zablokowane w koszyku klienta.' 
+                            : 'Wprowadzone przez Ciebie wymiary lub waga są zbyt duże na standardowego kuriera (>30kg lub >120cm). W koszyku dostępna będzie najdroższa opcja transportu.') 
+                        : shippingTier === 'courier' 
+                        ? 'Przedmiot jest za duży lub za ciężki (>25kg) na Paczkomat InPost. Kupujący zobaczy w koszyku tylko opcję dostawy kurierem na adres.' 
+                        : 'Wymiary są idealne. Kupujący będzie mógł wybrać w koszyku tanią i wygodną dostawę do Paczkomatu InPost.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* -------------------------------------- */}
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-sm font-bold text-gray-700">Warianty produktu (Opcjonalnie)</h4>
                 <button type="button" onClick={addVariant} className="bg-black text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-gray-800 transition">

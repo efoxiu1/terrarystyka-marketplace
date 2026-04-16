@@ -35,6 +35,10 @@ export default function PanelAdmina() {
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editCategoryName, setEditCategoryName] = useState('');
   const [editRequiresSpecies, setEditRequiresSpecies] = useState(true);
+  const [isBigFlag, setIsBigFlag] = useState(false); 
+  const [editIsBig, setEditIsBig] = useState(false);
+
+
   useEffect(() => {
     const checkAdminAndFetchData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -214,8 +218,9 @@ const handleAddCategory = async (e: React.FormEvent) => {
       .from('categories')
       .insert([{ 
         name: newCategoryName.trim(),
-        parent_id: parentCategoryId === '' ? null : parentCategoryId, // Jeśli puste, to kategoria główna (null)
-        requires_species: requiresSpeciesFlag // Flaga CITES/Gatunku
+        parent_id: parentCategoryId === '' ? null : parentCategoryId,
+        requires_species: requiresSpeciesFlag,
+        is_big: isBigFlag // <-- WYSYŁAMY GABARYT DO BAZY
       }])
       .select()
       .single();
@@ -224,42 +229,19 @@ const handleAddCategory = async (e: React.FormEvent) => {
       alert('Błąd! Być może taka kategoria już istnieje. (' + error.message + ')');
     } else if (data) {
       setCategories([...categories, data].sort((a, b) => a.name.localeCompare(b.name)));
-      // Resetujemy formularz po udanym dodaniu
       setNewCategoryName('');
       setParentCategoryId('');
       setRequiresSpeciesFlag(true);
+      setIsBigFlag(false); // <-- CZYŚCIMY STAN PO DODANIU
     }
   };
-  const toggleSuggestion = async (sourceId: string, suggestedId: string) => {
-    // Sprawdzamy, czy takie powiązanie już istnieje
-    const exists = suggestions.find(s => s.source_category_id === sourceId && s.suggested_category_id === suggestedId);
 
-    if (exists) {
-      // Jeśli istnieje - usuwamy je z bazy (odznaczony checkbox)
-      await supabase.from('category_suggestions').delete().eq('id', exists.id);
-      setSuggestions(suggestions.filter(s => s.id !== exists.id));
-    } else {
-      // Jeśli nie istnieje - tworzymy je (zaznaczony checkbox)
-      const { data, error } = await supabase.from('category_suggestions').insert([{
-        source_category_id: sourceId,
-        suggested_category_id: suggestedId
-      }]).select().single();
-
-      if (data) setSuggestions([...suggestions, data]);
-      if (error) alert('Błąd: ' + error.message);
-    }
-  };
-  const toggleCategoryStatus = async (id: string, currentStatus: boolean) => {
-    const { error } = await supabase.from('categories').update({ is_active: !currentStatus }).eq('id', id);
-    if (!error) {
-      setCategories(categories.map(c => c.id === id ? { ...c, is_active: !currentStatus } : c));
-    }
-  };
   // 1. Odpalenie trybu edycji
   const startEditingCategory = (cat: any) => {
     setEditingCategoryId(cat.id);
     setEditCategoryName(cat.name);
     setEditRequiresSpecies(cat.requires_species);
+    setEditIsBig(cat.is_big || false); // <-- ZACZYTUJEMY OBECNY GABARYT Z BAZY
   };
 
   // 2. Zapisanie zmian w bazie
@@ -270,21 +252,22 @@ const handleAddCategory = async (e: React.FormEvent) => {
       .from('categories')
       .update({ 
         name: editCategoryName.trim(), 
-        requires_species: editRequiresSpecies 
+        requires_species: editRequiresSpecies,
+        is_big: editIsBig // <-- AKTUALIZUJEMY GABARYT
       })
       .eq('id', id);
 
     if (error) {
       alert('Błąd zapisu: ' + error.message);
     } else {
-      // Aktualizujemy widok na żywo
       setCategories(categories.map(c => 
-        c.id === id ? { ...c, name: editCategoryName.trim(), requires_species: editRequiresSpecies } : c
+        c.id === id ? { ...c, name: editCategoryName.trim(), requires_species: editRequiresSpecies, is_big: editIsBig } : c
       ).sort((a, b) => a.name.localeCompare(b.name)));
       
-      setEditingCategoryId(null); // Zamykamy tryb edycji
+      setEditingCategoryId(null);
     }
   };
+
 
   // 3. Brutalne usunięcie z bazy
   const handleDeleteCategory = async (id: string, name: string, isParent: boolean) => {
@@ -618,17 +601,28 @@ const handleAddCategory = async (e: React.FormEvent) => {
           ))}
         </select>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
         <label className="flex items-center gap-2 font-bold text-gray-700 cursor-pointer">
           <input 
             type="checkbox" 
-            checked={requiresSpeciesFlag} // Stan: const [requiresSpeciesFlag, setRequiresSpeciesFlag] = useState(true)
+            checked={requiresSpeciesFlag} 
             onChange={e => setRequiresSpeciesFlag(e.target.checked)}
             className="w-5 h-5 accent-black"
           /> 
-          Ta kategoria wymaga wyboru gatunku i CITES
+          Wymaga gatunku / CITES
         </label>
-        <button type="submit" className="ml-auto bg-black text-white font-black px-8 py-3 rounded-xl hover:bg-gray-800 transition">
+        
+        <label className="flex items-center gap-2 font-bold text-amber-700 cursor-pointer">
+          <input 
+            type="checkbox" 
+            checked={isBigFlag} 
+            onChange={e => setIsBigFlag(e.target.checked)}
+            className="w-5 h-5 accent-amber-600"
+          /> 
+          🚛 Przesyłka Gabarytowa (is_big)
+        </label>
+
+        <button type="submit" className="md:ml-auto bg-black text-white font-black px-8 py-3 rounded-xl hover:bg-gray-800 transition">
           + Dodaj kategorię
         </button>
       </div>
@@ -649,6 +643,10 @@ const handleAddCategory = async (e: React.FormEvent) => {
                   onChange={e => setEditCategoryName(e.target.value)} 
                   className="flex-1 bg-white border border-gray-300 rounded-lg px-3 py-1 outline-none focus:border-black font-bold"
                 />
+                <label className="flex items-center gap-1 text-xs font-bold text-amber-700 cursor-pointer">
+                  <input type="checkbox" checked={editIsBig} onChange={e => setEditIsBig(e.target.checked)} className="w-4 h-4 accent-amber-600" /> 
+                  Gabaryt
+                </label>
                 <button onClick={() => handleSaveEditCategory(parent.id)} className="bg-green-500 text-white px-4 py-1.5 rounded-lg font-bold hover:bg-green-600 text-sm">Zapisz</button>
                 <button onClick={() => setEditingCategoryId(null)} className="bg-gray-200 text-gray-700 px-4 py-1.5 rounded-lg font-bold hover:bg-gray-300 text-sm">Anuluj</button>
               </div>
@@ -699,9 +697,16 @@ const handleAddCategory = async (e: React.FormEvent) => {
                     <div className="flex justify-between items-start">
                       <div>
                         <span className="font-bold text-gray-900">{sub.name}</span>
-                        <p className="text-[10px] text-gray-400 uppercase font-black mt-1">
+                        <div className="flex gap-2 mt-1">
+                        <span className="text-[10px] text-gray-500 uppercase font-black bg-gray-100 px-2 py-0.5 rounded">
                           {sub.requires_species ? '🧬 Wymaga gatunku' : '📦 Bez gatunku'}
-                        </p>
+                        </span>
+                        {sub.is_big && (
+                          <span className="text-[10px] text-amber-700 uppercase font-black bg-amber-100 px-2 py-0.5 rounded border border-amber-200">
+                            🚛 Gabaryt
+                          </span>
+                        )}
+                      </div>
                       </div>
                       <button onClick={() => toggleCategoryStatus(sub.id, sub.is_active)} className={`text-[10px] font-bold px-2 py-1 rounded transition ${sub.is_active ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
                         {sub.is_active ? 'Wyłącz' : 'Włącz'}

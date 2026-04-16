@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
+import Script from 'next/script';
 
 export default function Checkout() {
   const router = useRouter();
@@ -15,8 +16,10 @@ export default function Checkout() {
   const [shippingData, setShippingData] = useState({ name: '', street: '', city: '', zip: '', phone: '', lockerId: '' });
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedLockerIds, setSelectedLockerIds] = useState<any>({}); // { 'id-sprzedawcy-1': 'POZ01M' }
+  const [isMapOpenForSeller, setIsMapOpenForSeller] = useState<string | null>(null); // Pamiętamy, dla którego sprzedawcy klient otwiera mapę
 
-  useEffect(() => {
+  useEffect(() => { 
     const fetchCheckoutData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return router.push('/');
@@ -89,7 +92,26 @@ export default function Checkout() {
 
     fetchCheckoutData();
   }, [router]);
+  // ------------------------------------------------------------------
+  // NASŁUCHIWANIE KLIKNIĘCIA W MAPĘ INPOSTU
+  // ------------------------------------------------------------------
+  useEffect(() => {
+    const handlePointSelect = (event: any) => {
+      if (event.detail && event.detail.name && isMapOpenForSeller) {
+        // Zapisujemy wybrany paczkomat dla konkretnego sprzedawcy
+        setSelectedLockerIds((prev: any) => ({
+          ...prev,
+          [isMapOpenForSeller]: event.detail.name
+        }));
+        
+        // Zamykamy mapę
+        setIsMapOpenForSeller(null);
+      }
+    };
 
+    window.addEventListener('inpost.geowidget.point.select', handlePointSelect);
+    return () => window.removeEventListener('inpost.geowidget.point.select', handlePointSelect);
+  }, [isMapOpenForSeller]);
   // Funkcja zmieniająca metodę dostawy dla konkretnej paczki
   const handleMethodChange = (sellerId: string, methodCode: string) => {
     setSelectedMethods({ ...selectedMethods, [sellerId]: methodCode });
@@ -124,7 +146,11 @@ export default function Checkout() {
       const { data: order, error: orderError } = await supabase.from('orders').insert([{
         user_id: user?.id,
         total_amount: totalAmount,
-        shipping_details: shippingData,
+        shipping_details: {
+           address: shippingData,
+           methods: selectedMethods,
+           lockers: selectedLockerIds
+        },
         payment_provider: 'hotpay',
         status: 'pending_payment'
       }]).select().single();
@@ -204,6 +230,8 @@ export default function Checkout() {
 
   return (
     <main className="max-w-5xl mx-auto p-6 mt-10 mb-20">
+      <link rel="stylesheet" href="https://geowidget.inpost.pl/inpost-geowidget.css" />
+      <Script src="https://geowidget.inpost.pl/inpost-geowidget.js" strategy="lazyOnload" />
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-12">
         
         {/* LEWA STRONA (FORMULARZ I PACZKI) */}
@@ -259,26 +287,65 @@ export default function Checkout() {
                       <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Wybierz dostawę dla tej paczki</p>
                       
                       {options ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {options.available.map((methodCode: string) => {
-                            const isSelected = selectedMethod === methodCode;
-                            const methodData = options.methods[methodCode];
-                            
-                            return (
-                              <button
-                                key={methodCode}
-                                type="button"
-                                onClick={() => handleMethodChange(sellerId, methodCode)}
-                                className={`text-left p-4 rounded-xl border-2 transition ${isSelected ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600/20' : 'border-gray-200 hover:border-blue-300'}`}
-                              >
-                                <div className="flex justify-between items-center mb-1">
-                                  <span className="font-black text-gray-900">{methodData.name}</span>
-                                  <span className="font-bold text-blue-700">{methodData.price.toFixed(2)} zł</span>
+                        <div className="space-y-3">
+                          {/* GRID METOD DOSTAWY */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {options.available.map((methodCode: string) => {
+                              const isSelected = selectedMethod === methodCode;
+                              const methodData = options.methods[methodCode];
+                              
+                              return (
+                                <label
+                                  key={methodCode}
+                                  className={`flex items-center p-4 rounded-xl border-2 cursor-pointer transition ${isSelected ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-600/20' : 'border-gray-200 hover:border-blue-300'}`}
+                                >
+                                  <input 
+                                    type="radio" 
+                                    name={`shipping-${sellerId}`} 
+                                    value={methodCode} 
+                                    checked={isSelected} 
+                                    onChange={() => handleMethodChange(sellerId, methodCode)} 
+                                    className="w-5 h-5 accent-blue-600 mr-3" 
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="font-black text-gray-900">{methodData.name}</span>
+                                      <span className="font-bold text-blue-700">{methodData.price.toFixed(2)} zł</span>
+                                    </div>
+                                    <p className="text-xs text-gray-500">{methodData.message}</p>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+
+                          {/* INPOST - POLE NA WYBÓR PACZKOMATU (Pojawia się pod gridem, jeśli wybrano inpost) */}
+                          {selectedMethod === 'inpost' && (
+                            <div className="mt-4 p-5 rounded-2xl bg-yellow-50 border border-yellow-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                              {selectedLockerIds[sellerId] ? (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-3xl">📍</span>
+                                  <div>
+                                    <p className="text-[10px] font-black uppercase text-yellow-800 tracking-widest mb-0.5">Paczka trafi do</p>
+                                    <p className="font-black text-lg text-yellow-900">{selectedLockerIds[sellerId]}</p>
+                                  </div>
                                 </div>
-                                <p className="text-xs text-gray-500">{methodData.message}</p>
+                              ) : (
+                                <div className="flex items-center gap-2 text-yellow-800 font-bold">
+                                  <span className="text-xl">⚠️</span> Wybierz punkt odbioru
+                                </div>
+                              )}
+                              
+                              <button 
+                                type="button" 
+                                onClick={() => setIsMapOpenForSeller(sellerId)} 
+                                className="bg-yellow-400 hover:bg-yellow-500 text-black font-black py-3 px-6 rounded-xl transition shadow-sm w-full sm:w-auto"
+                              >
+                                Pokaż Mapę ➔
                               </button>
-                            );
-                          })}
+                            </div>
+                          )}
+
                         </div>
                       ) : (
                         <p className="text-gray-400 animate-pulse text-sm">Ładowanie opcji logistycznych...</p>
@@ -337,6 +404,27 @@ export default function Checkout() {
         </aside>
 
       </div>
+      {isMapOpenForSeller && (
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl h-[80vh] rounded-3xl overflow-hidden flex flex-col relative animate-in zoom-in-95">
+            <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
+              <h3 className="font-black">
+                Znajdź Paczkomat (Dla paczki od {groupedPackages[isMapOpenForSeller]?.seller?.username})
+              </h3>
+              <button type="button" onClick={() => setIsMapOpenForSeller(null)} className="text-2xl font-black hover:scale-110 transition">✕</button>
+            </div>
+            
+            <div className="flex-1 w-full h-full relative">
+              {/* @ts-ignore */}
+              <inpost-geowidget 
+                language="pl" 
+                config="parcelCollect" 
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+              ></inpost-geowidget>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
