@@ -131,40 +131,53 @@ export default function Checkout() {
 
       if (orderError) throw orderError;
 
-      // ---------------------------------------------------------
-      // NOWE: 1.5. ZAPISUJEMY ZAWARTOŚĆ KOSZYKA DO TABELI order_items
+    // ---------------------------------------------------------
+      // 1.5. ZAPISUJEMY ZAWARTOŚĆ KOSZYKA (Wersja Kuloodporna)
       // ---------------------------------------------------------
       const allItemsToInsert: any[] = [];
 
-      // Przechodzimy przez wszystkie paczki od wszystkich sprzedawców
       Object.keys(groupedPackages).forEach(sellerId => {
         const group = groupedPackages[sellerId];
         
         group.items.forEach((item: any) => {
-          const price = item.variant ? item.variant.price : item.listing.price;
+          // 1. Bezpieczne wyciąganie danych (odporne na to, czy Supabase zwraca tablicę, czy obiekt)
+          const listing = Array.isArray(item.listing) ? item.listing[0] : item.listing;
+          const variant = Array.isArray(item.variant) ? item.variant[0] : item.variant;
           
-          allItemsToInsert.push({
-            order_id: order.id,              // Łączymy z głównym zamówieniem
-            listing_id: item.listing.id,     // ID ogłoszenia
-            quantity: item.quantity,         // Ile sztuk ktoś kupuje
-            unit_price: price                // Cena za sztukę w momencie zakupu
-          });
+          // 2. Szukamy ceny. Jeśli nie ma wariantu, bierzemy z ogłoszenia głównego.
+          const rawPrice = (variant && variant.price) ? variant.price : listing?.price;
+          
+          // 3. Wymuszamy, żeby to była prawdziwa liczba. Jeśli to np. null, dajemy 0.
+          const finalPrice = parseFloat(rawPrice) || 0;
+
+          const payload = {
+            order_id: order.id,
+            listing_id: listing?.id,
+            quantity: item.quantity || 1,
+            unit_price: finalPrice
+          };
+
+          // RENTGEN - Wyświetlamy dokładnie to, co leci do bazy!
+          console.log(`📦 PRÓBA ZAPISU PRODUKTU ${listing?.id}:`, payload);
+          
+          allItemsToInsert.push(payload);
         });
       });
 
-      // Zapisujemy całą tablicę "allItemsToInsert" do Supabase jednym rzutem
+      console.log("🚀 WSZYSTKIE PRZEDMIOTY DO WYSYŁKI:", allItemsToInsert);
+
       if (allItemsToInsert.length > 0) {
-        const { error: itemsError } = await supabase
+        const { data: insertedData, error: itemsError } = await supabase
           .from('order_items')
-          .insert(allItemsToInsert);
+          .insert(allItemsToInsert)
+          .select(); // Dodajemy .select(), żeby upewnić się, że baza odda nam zapisane wiersze
           
         if (itemsError) {
-           console.error("Błąd podczas zapisywania przedmiotów z koszyka:", itemsError);
-           throw new Error("Nie udało się zapisać przedmiotów z koszyka.");
+           console.error("❌ Błąd Supabase (SZCZEGÓŁY):", itemsError);
+           throw new Error(`Błąd bazy: ${itemsError.message}`);
         }
       }
       // ---------------------------------------------------------
-
 
       // 2. Prosimy nasz serwer o wygenerowanie linku do banku z kryptograficznym Hashem
       const paymentRes = await fetch('/api/payments/hotpay', {
