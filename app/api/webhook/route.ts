@@ -40,39 +40,51 @@ export async function POST(req: Request) {
     }
 
     // 3. LOGIKA BIZNESOWA (Wydanie towaru)
-   if (status === 'SUCCESS') {
+    if (status === 'SUCCESS') {
         console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}, Kwota: ${kwota} PLN`);
         
-        // 1. Oznaczamy całe zamówienie jako OPŁACONE
-        await supabaseAdmin
+        // 1. Oznaczamy całe zamówienie jako OPŁACONE (Z wyciągnięciem błędu!)
+        const { error: orderError } = await supabaseAdmin
           .from('orders')
           .update({ status: 'paid', hotpay_id: id_platnosci })
           .eq('id', id_zamowienia);
   
-        // 2. NOWE: Pobieramy listę zakupionych przedmiotów z koszyka (order_items)
-        const { data: orderItems } = await supabaseAdmin
+        if (orderError) {
+            console.error("❌ BŁĄD SUPABASE (ORDERS):", orderError);
+        }
+
+        // 2. NOWE: Pobieramy listę zakupionych przedmiotów z koszyka
+        const { data: orderItems, error: itemsError } = await supabaseAdmin
           .from('order_items')
           .select('listing_id, quantity')
           .eq('order_id', id_zamowienia);
 
-        // 3. NOWE: Aktualizujemy konkretne ogłoszenia (listings)
+        if (itemsError) {
+            console.error("❌ BŁĄD SUPABASE (POBIERANIE KOSZYKA):", itemsError);
+        }
+
+        // 3. NOWE: Aktualizujemy konkretne ogłoszenia
         if (orderItems && orderItems.length > 0) {
             for (const item of orderItems) {
                 if (item.listing_id) {
-                    // Tutaj decydujesz, co się dzieje z kupionym ogłoszeniem. 
-                    // Np. zmieniamy is_active na false (ukrywamy je), bo zostało sprzedane.
-                    await supabaseAdmin
+                    const { error: listingError } = await supabaseAdmin
                         .from('listings')
-                        .update({ is_active: false }) // <-- Możesz tu też np. odjąć stock: stary_stock - item.quantity
+                        .update({ is_active: false })
                         .eq('id', item.listing_id);
+                        
+                    if (listingError) {
+                        console.error(`❌ BŁĄD SUPABASE (UKRYWANIE OGŁOSZENIA ${item.listing_id}):`, listingError);
+                    }
                 }
             }
             console.log(`🛒 Przetworzono ${orderItems.length} przedmiotów z koszyka!`);
+        } else {
+            console.log(`⚠️ UWAGA: Koszyk dla zamówienia ${id_zamowienia} wydał się pusty!`);
         }
 
-        console.log('✅ Baza danych zaktualizowana. Transakcja zakończona!');
+        console.log('✅ Skrypt webhooka dotarł do końca!');
     }
-
+    
     // 4. Potwierdzamy odbiór (HotPay tego wymaga)
     return new Response('OK', { status: 200 });
 
