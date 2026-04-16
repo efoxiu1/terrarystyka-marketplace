@@ -118,8 +118,9 @@ export default function Checkout() {
     // Jeśli mapa się pojawi i mamy do niej dostęp przez ref
     if (widgetRef.current) {
       // Ustawiamy atrybuty ręcznie - to omija błąd "only a getter"
-      widgetRef.current.setAttribute('language', 'pl');
-      widgetRef.current.setAttribute('config', 'parcelCollect');
+widget.setAttribute('language', 'pl');
+    widget.setAttribute('config', 'parcelCollect'); // To wyłącza configname=null
+    widget.setAttribute('token', ''); // Pusty string zamiast null
     }
   }, [isMapOpenForSeller]); // Odpali się, gdy otworzysz modal z mapą
   const handleMethodChange = (sellerId: string, methodCode: string) => {
@@ -240,7 +241,10 @@ export default function Checkout() {
   return (
     <main className="max-w-5xl mx-auto p-6 mt-10 mb-20">
       <link rel="stylesheet" href="https://geowidget.inpost.pl/inpost-geowidget.css" />
-      <Script src="https://geowidget.inpost.pl/inpost-geowidget.js" strategy="lazyOnload" />
+      <Script 
+  src="https://geowidget.inpost.pl/inpost-geowidget.js" 
+  strategy="beforeInteractive" // Spróbuj załadować go wcześniej
+/>
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-12">
         
         {/* LEWA STRONA (FORMULARZ I PACZKI) */}
