@@ -95,6 +95,40 @@ if (orderItems && orderItems.length > 0) {
 }
 
         console.log('✅ Skrypt webhooka dotarł do końca!');
+        // ---------------------------------------------------------
+        // 4. CZYSZCZENIE KOSZYKA UŻYTKOWNIKA (Automatyczne usuwanie)
+        // ---------------------------------------------------------
+        
+        // Krok A: Pobieramy ID użytkownika z zamówienia, żeby wiedzieć CZYJ koszyk czyścić
+        const { data: orderData } = await supabaseAdmin
+            .from('orders')
+            .select('user_id')
+            .eq('id', id_zamowienia)
+            .single();
+
+        if (orderData && orderData.user_id) {
+            // Krok B: Wyciągamy same ID ogłoszeń (listing_id) do jednej tablicy
+            // np. ['id-jaszczurki', 'id-karmy']
+            const purchasedListingIds = orderItems
+                .map(item => item.listing_id)
+                .filter(id => id !== null);
+
+            // Krok C: Kasujemy z koszyka TYLKO zakupione przedmioty
+            if (purchasedListingIds.length > 0) {
+                const { error: cartError } = await supabaseAdmin
+                    .from('cart_items') // Upewnij się, że tak nazywa się Twoja tabela koszyka!
+                    .delete()
+                    .eq('user_id', orderData.user_id)
+                    .in('listing_id', purchasedListingIds); // Magia Supabase: Usuń wszystko, co jest na tej liście
+
+                if (cartError) {
+                    console.error("❌ BŁĄD SUPABASE (USUWANIE Z KOSZYKA):", cartError);
+                } else {
+                    console.log("🗑️ Koszyk użytkownika został pomyślnie opróżniony z kupionych przedmiotów!");
+                }
+            }
+        }
+        // ---------------------------------------------------------
     }
 
     // 4. Potwierdzamy odbiór (HotPay tego wymaga)
