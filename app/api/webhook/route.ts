@@ -30,7 +30,6 @@ export async function POST(req: Request) {
     }
 
     // 2. TWORZENIE HASHA - WZÓR V3 (Zwycięzca!)
-    // HASŁO ; KWOTA ; ID_PLATNOSCI ; ID_ZAMOWIENIA ; STATUS ; SECURE ; SEKRET
     const stringToHash = `${haslo_notyfikacji.trim()};${kwota.trim()};${id_platnosci.trim()};${id_zamowienia.trim()};${status.trim()};${secure.trim()};${sekret_uslugi.trim()}`;
     const calculatedHash = crypto.createHash('sha256').update(stringToHash).digest('hex');
 
@@ -39,96 +38,99 @@ export async function POST(req: Request) {
       return new Response('ERROR_HASH', { status: 400 }); 
     }
 
-    // 3. LOGIKA BIZNESOWA (Wydanie towaru)
+    // 3. LOGIKA BIZNESOWA (Wydanie towaru lub pakietu)
     if (status === 'SUCCESS') {
         console.log(`💰 MAMY WPŁATĘ! Zamówienie: ${id_zamowienia}, Kwota: ${kwota} PLN`);
         
-        // 1. Oznaczamy całe zamówienie jako OPŁACONE (Z wyciągnięciem błędu!)
-        const { error: orderError } = await supabaseAdmin
+        // A. Oznaczamy całe zamówienie jako OPŁACONE i POBIERAMY JEGO DANE
+        const { data: order, error: orderError } = await supabaseAdmin
           .from('orders')
           .update({ status: 'paid', hotpay_id: id_platnosci })
-          .eq('id', id_zamowienia);
+          .eq('id', id_zamowienia)
+          .select()
+          .single(); 
   
         if (orderError) {
             console.error("❌ BŁĄD SUPABASE (ORDERS):", orderError);
         }
 
-        // 2. NOWE: Pobieramy listę zakupionych przedmiotów z koszyka
-        const { data: orderItems, error: itemsError } = await supabaseAdmin
-          .from('order_items')
-          .select('listing_id, quantity')
-          .eq('order_id', id_zamowienia);
+        // B. SCENARIUSZ 1: KLIENT KUPIŁ PAKIET LIMITÓW (Ma zdefiniowany update_type)
+        if (order && order.update_type) {
+            let finalLimit = order.new_limit || 0;
+            const profileUpdates: any = {}; 
+            
+            if (order.update_type === 'add') {
+                // Pobieramy obecny limit użytkownika
+                const { data: profile } = await supabaseAdmin
+                  .from('profiles')
+                  .select('max_active_listings')
+                  .eq('id', order.user_id)
+                  .single();
+                  
+                finalLimit = (profile?.max_active_listings || 2) + order.new_limit; 
+            }
+            
+            // Wrzucamy do paczki nowy limit
+            profileUpdates.max_active_listings = finalLimit;
 
-        if (itemsError) {
-            console.error("❌ BŁĄD SUPABASE (POBIERANIE KOSZYKA):", itemsError);
-        }
+            // Jeśli kupił pakiet o ID 'pro', dorzucamy do paczki status zweryfikowanego sprzedawcy!
+            if (order.package_id === 'pro') {
+                profileUpdates.is_verified_seller = true;
+            }
 
-        // 3. NOWE: Aktualizujemy konkretne ogłoszenia
-        // 3. AKTUALIZACJA STANÓW MAGAZYNOWYCH
-if (orderItems && orderItems.length > 0) {
-    for (const item of orderItems) {
-        if (item.listing_id) {
-            // 1. Najpierw pobieramy aktualny stan, żeby wiedzieć ile odjąć
-            const { data: listing } = await supabaseAdmin
-                .from('listings')
-                .select('quantity')
-                .eq('id', item.listing_id)
-                .single();
+            // Aktualizujemy profil jednym strzałem
+            const { error: profileError } = await supabaseAdmin
+              .from('profiles')
+              .update(profileUpdates)
+              .eq('id', order.user_id);
 
-            if (listing) {
-                const currentStock = listing.quantity || 0;
-                const newStock = Math.max(0, currentStock - item.quantity); // Nie schodzimy poniżej zera
-
-                // 2. Aktualizujemy stan i opcjonalnie wyłączamy, jeśli spadło do 0
-                await supabaseAdmin
-                    .from('listings')
-                    .update({ 
-                        quantity: newStock,
-                        // Jeśli chcesz, żeby ogłoszenie znikało dopiero gdy braknie towaru:
-                    })
-                    .eq('id', item.listing_id);
-                
-                console.log(`📦 Zaktualizowano magazyn dla ${item.listing_id}: ${currentStock} -> ${newStock}`);
+            if (profileError) {
+                console.error("❌ BŁĄD SUPABASE (AKTUALIZACJA PROFILU):", profileError);
+            } else {
+                console.log(`🚀 Zaktualizowano profil usera ${order.user_id}. Limit: ${finalLimit}. Zweryfikowany: ${!!profileUpdates.is_verified_seller}`);
             }
         }
-    }
-}
-
-        console.log('✅ Skrypt webhooka dotarł do końca!');
-        // ---------------------------------------------------------
-        // 4. CZYSZCZENIE KOSZYKA UŻYTKOWNIKA (Automatyczne usuwanie)
-        // ---------------------------------------------------------
         
-        // Krok A: Pobieramy ID użytkownika z zamówienia, żeby wiedzieć CZYJ koszyk czyścić
-        const { data: orderData } = await supabaseAdmin
-            .from('orders')
-            .select('user_id')
-            .eq('id', id_zamowienia)
-            .single();
+        // C. SCENARIUSZ 2: KLIENT KUPIŁ FIZYCZNY PRODUKT (Brak update_type)
+        else if (order) {
+            const { data: orderItems } = await supabaseAdmin
+              .from('order_items')
+              .select('listing_id, quantity')
+              .eq('order_id', id_zamowienia);
 
-        if (orderData && orderData.user_id) {
-          // Krok B: Wyciągamy same ID ogłoszeń (listing_id) do jednej tablicy
-        // TypeScript FIX: Jeśli orderItems jest null, użyj pustej tablicy []
-        const purchasedListingIds = (orderItems || [])
-            .map(item => item.listing_id)
-            .filter(id => id !== null);
-            
-            // Krok C: Kasujemy z koszyka TYLKO zakupione przedmioty
-            if (purchasedListingIds.length > 0) {
-                const { error: cartError } = await supabaseAdmin
-                    .from('cart_items') // Upewnij się, że tak nazywa się Twoja tabela koszyka!
-                    .delete()
-                    .eq('user_id', orderData.user_id)
-                    .in('listing_id', purchasedListingIds); // Magia Supabase: Usuń wszystko, co jest na tej liście
+            if (orderItems && orderItems.length > 0) {
+                // Krok C1: Aktualizujemy stany magazynowe
+                for (const item of orderItems) {
+                    if (item.listing_id) {
+                        const { data: listing } = await supabaseAdmin.from('listings').select('stock').eq('id', item.listing_id).single();
+                        if (listing) {
+                            const newStock = Math.max(0, (listing.stock || 0) - item.quantity);
+                            await supabaseAdmin.from('listings').update({ stock: newStock, is_active: newStock > 0 }).eq('id', item.listing_id);
+                        }
+                    }
+                }
+                console.log(`🛒 Przetworzono ${orderItems.length} fizycznych przedmiotów z koszyka!`);
 
-                if (cartError) {
-                    console.error("❌ BŁĄD SUPABASE (USUWANIE Z KOSZYKA):", cartError);
-                } else {
-                    console.log("🗑️ Koszyk użytkownika został pomyślnie opróżniony z kupionych przedmiotów!");
+                // Krok C2: Czyścimy koszyk użytkownika z TYCH KONKRETNYCH przedmiotów
+                const purchasedListingIds = orderItems.map(item => item.listing_id).filter(id => id !== null);
+                
+                if (purchasedListingIds.length > 0 && order.user_id) {
+                    const { error: cartError } = await supabaseAdmin
+                        .from('cart_items') 
+                        .delete()
+                        .eq('user_id', order.user_id)
+                        .in('listing_id', purchasedListingIds); 
+
+                    if (cartError) {
+                        console.error("❌ BŁĄD SUPABASE (USUWANIE Z KOSZYKA):", cartError);
+                    } else {
+                        console.log("🗑️ Koszyk użytkownika został pomyślnie opróżniony z kupionych przedmiotów!");
+                    }
                 }
             }
         }
-        // ---------------------------------------------------------
+
+        console.log('✅ Skrypt webhooka obsłużył transakcję pomyślnie!');
     }
 
     // 4. Potwierdzamy odbiór (HotPay tego wymaga)

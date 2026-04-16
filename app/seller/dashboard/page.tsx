@@ -11,63 +11,62 @@ export default function SellerDashboard() {
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchSellerOrders = async () => {
+   const fetchSellerOrders = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push('/');
         return;
       }
 
-      // 🔥 MAGIA BAZY DANYCH: Pobieramy tylko te przedmioty, które należą do Ciebie, 
-      // i dociągamy do nich dane całego zamówienia (tylko opłacone!)
+      // 🔥 POPRAWKA: Prawidłowe nazwy kolumn ('price') i uproszczone relacje
       const { data, error } = await supabase
         .from('order_items')
         .select(`
           id,
           quantity,
-          unit_price,
-          order:orders!inner(id, created_at, status, shipping_details),
-          listing:listings!inner(id, title, fk_seller_profile)
+          price_at_purchase, 
+          orders!inner(id, created_at, status, shipping_details),
+          listings!inner(id, title, seller_id)
         `)
-        .eq('listing.fk_seller_profile', user.id)
-        .eq('order.status', 'paid')
+        .eq('listings.seller_id', user.id)
+        .eq('orders.status', 'paid')
         .order('id', { ascending: false });
 
       if (error) {
-        console.error("Błąd pobierania zamówień:", error);
+        // Rentgen: jeśli znowu wywali błąd, rozwiń go w konsoli!
+        console.error("❌ BŁĄD SUPABASE (POBIERANIE ZAMÓWIEŃ):", error);
         setLoading(false);
         return;
       }
 
-      // Grupowanie przedmiotów po ID zamówienia, żeby ładnie to wyświetlić
       const groupedOrders: Record<string, any> = {};
       
       data?.forEach((item: any) => {
-        const orderId = item.order.id;
+        // Dostosowanie do nowych, bezpiecznych nazw z bazy
+        const orderId = item.orders.id;
+        
         if (!groupedOrders[orderId]) {
           groupedOrders[orderId] = {
             id: orderId,
-            date: new Date(item.order.created_at).toLocaleDateString('pl-PL', {
+            date: new Date(item.orders.created_at).toLocaleDateString('pl-PL', {
               day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit'
             }),
-            shipping: item.order.shipping_details,
+            shipping: item.orders.shipping_details,
             total_earned: 0,
             items: []
           };
         }
         
-        // Dodajemy przedmiot do grupy
         groupedOrders[orderId].items.push({
-          title: item.listing.title,
+          title: item.listings.title,
           quantity: item.quantity,
-          price: item.unit_price
+          price: item.price_at_purchase
         });
         
-        // Sumujemy zarobek TYLKO z Twoich przedmiotów w tym zamówieniu
-        groupedOrders[orderId].total_earned += (item.unit_price * item.quantity);
+        // Sumujemy zarobek z uzyciem prawidlowej kolumny 'price'
+        groupedOrders[orderId].total_earned += (item.price_at_purchase * item.quantity);
       });
 
-      // Zamieniamy obiekt w tablicę, żeby łatwo to wyrenderować
       setOrders(Object.values(groupedOrders));
       setLoading(false);
     };

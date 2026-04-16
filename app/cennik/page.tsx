@@ -12,7 +12,6 @@ export default function Cennik() {
   const [isLoading, setIsLoading] = useState(true);
   const [currentLimit, setCurrentLimit] = useState<number>(2); 
 
-  // NOWOŚĆ: Stan przełącznika (Domyślnie włączony na subskrypcję)
   const [isSubscriptionMode, setIsSubscriptionMode] = useState(true);
 
   useEffect(() => {
@@ -32,27 +31,47 @@ export default function Cennik() {
     initPage();
   }, []);
 
-  const handleBuy = async (packageId: string) => {
-    if (!user) return router.push('/login');
-    setLoadingPackage(packageId);
+  // 🔥 UNIWERSALNA FUNKCJA ZAKUPU (Obsługuje pojedyncze sztuki ORAZ pakiety)
+  const handlePurchase = async (planType: string, calculatedPrice: number, limitToAddOrReplace: number, updateType: 'add' | 'replace') => {
+    setLoadingPackage(planType);
+    
     try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // NOWOŚĆ: Wysyłamy wybór klienta na serwer!
-        body: JSON.stringify({ 
-          userId: user.id, 
-          packageId, 
-          isSubscriptionChoice: isSubscriptionMode 
-        }),
-      });
-      const data = await res.json();
-      if (data.url) window.location.href = data.url;
-      else alert('Błąd: ' + data.error);
-    } catch (err) {
-      alert('Nie udało się połączyć z płatnościami.');
+        if (!user) {
+            alert("Musisz być zalogowany, aby kupić pakiet!");
+            return router.push('/login');
+        }
+
+        // 1. Zapisujemy prawdziwy, bezpieczny szkic w bazie (Z prawdziwym UUID!)
+        const { data: order, error: orderError } = await supabase.from('orders').insert([{
+            user_id: user.id,
+            total_amount: calculatedPrice, 
+            status: 'pending_payment',
+            payment_provider: 'hotpay',
+            new_limit: limitToAddOrReplace,
+            update_type: updateType, // 'add' dla pojedynczych, 'replace' dla głównych pakietów
+            package_id: planType
+        }]).select().single();
+
+        if (orderError) throw orderError;
+
+        // 2. Wysyłamy legalny order.id (UUID) do naszego generatora linków HotPay
+        const paymentRes = await fetch('/api/payments/hotpay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ orderId: order.id, amount: calculatedPrice }) 
+        });
+        
+        const paymentData = await paymentRes.json();
+        
+        if (paymentData.error) throw new Error(paymentData.error);
+
+        // 3. Wyrzucamy klienta do banku
+        window.location.href = paymentData.url;
+
+    } catch (err: any) {
+        alert("Wystąpił błąd podczas generowania płatności: " + err.message);
+        setLoadingPackage(null);
     }
-    setLoadingPackage(null);
   };
 
   if (isLoading) return <div className="text-center mt-20 font-bold text-gray-500 animate-pulse">Wczytywanie cennika...</div>;
@@ -70,13 +89,12 @@ export default function Cennik() {
         Rozwiń swoją hodowlę. Wybierz limit, który najlepiej do Ciebie pasuje, lub dokup pojedyncze miejsce.
       </p>
 
-      {/* --- NOWOŚĆ: PRZEŁĄCZNIK SUBSKRYPCJI --- */}
+      {/* --- PRZEŁĄCZNIK SUBSKRYPCJI --- */}
       <div className="flex items-center justify-center gap-4 mb-12">
         <span className={`font-bold transition-colors ${!isSubscriptionMode ? 'text-gray-900' : 'text-gray-400'}`}>
           Płatność jednorazowa
         </span>
         
-        {/* Toggle Button */}
         <button 
           onClick={() => setIsSubscriptionMode(!isSubscriptionMode)}
           className={`w-16 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${isSubscriptionMode ? 'bg-amber-500' : 'bg-gray-300'}`}
@@ -102,14 +120,14 @@ export default function Cennik() {
           <div className="text-right shrink-0 relative z-10">
             <div className="text-2xl font-black mb-2">{singlePlan.price_pln / 100} zł</div>
             <button 
-              onClick={() => handleBuy('single')}
+              // Obliczamy parametry dla pojedynczego ogłoszenia (typ 'add')
+              onClick={() => handlePurchase('single', singlePlan.price_pln / 100, 1, 'add')}
               disabled={loadingPackage !== null}
               className="bg-white text-black text-sm font-black py-2 px-6 rounded-xl hover:bg-gray-200 transition disabled:opacity-50"
             >
               {loadingPackage === 'single' ? 'Ładowanie...' : 'Kup sztukę'}
             </button>
           </div>
-          {/* Ozdobny dopisek, że to zawsze jest jednorazowe */}
           <div className="absolute -bottom-2 -left-2 text-6xl opacity-5">1️⃣</div>
         </div>
       )}
@@ -121,6 +139,7 @@ export default function Cennik() {
           const upgradeDifference = plan.price_pln - maxOwnedValue;
           const isUpgrade = !isOwnedOrLower && maxOwnedValue > 0 && upgradeDifference >= 200;
           
+          // Cena do wyświetlenia i zapłacenia w PLN
           const displayPrice = isUpgrade ? upgradeDifference / 100 : plan.price_pln / 100;
 
           return (
@@ -142,11 +161,11 @@ export default function Cennik() {
                 {isUpgrade ? (
                   <div>
                     <span className="line-through text-gray-400 text-lg mr-2">{plan.price_pln / 100} zł</span>
-                    <span className="text-4xl font-black text-green-600">{displayPrice} <span className="text-lg font-medium">zł</span></span>
+                    <span className="text-4xl font-black text-green-600">{displayPrice.toFixed(2)} <span className="text-lg font-medium">zł</span></span>
                   </div>
                 ) : (
                   <span className="text-4xl font-black text-gray-900">
-                    {displayPrice} <span className="text-lg text-gray-500 font-medium">zł {isSubscriptionMode ? '/ msc' : ''}</span>
+                    {displayPrice.toFixed(2)} <span className="text-lg text-gray-500 font-medium">zł {isSubscriptionMode ? '/ msc' : ''}</span>
                   </span>
                 )}
               </div>
@@ -154,7 +173,6 @@ export default function Cennik() {
               <ul className="text-left space-y-4 mb-8 flex-1 font-medium text-gray-600">
                 <li className="flex gap-2"><span>✅</span> Do {plan.listing_limit} aktywnych ogłoszeń</li>
                 <li className="flex gap-2"><span>✅</span> Standardowe pozycjonowanie</li>
-                {/* Dynamika opisu na podstawie suwaka */}
                 <li className="flex gap-2">
                   <span>{isSubscriptionMode ? '🔄' : '⏱️'}</span> 
                   {isSubscriptionMode ? 'Automatyczne odnawianie' : 'Ważne przez 30 dni'}
@@ -162,7 +180,8 @@ export default function Cennik() {
               </ul>
               
               <button 
-                onClick={() => handleBuy(plan.id)}
+                // Uruchamiamy uniwersalną funkcję, przekazując cenę po zniżkach i typ 'replace'
+                onClick={() => handlePurchase(plan.id, displayPrice, plan.listing_limit, 'replace')}
                 disabled={loadingPackage !== null || isOwnedOrLower}
                 className={`w-full font-black py-4 rounded-xl transition ${
                   isOwnedOrLower 
