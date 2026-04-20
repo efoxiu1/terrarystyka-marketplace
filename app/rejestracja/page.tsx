@@ -1,31 +1,73 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase'; // Upewnij się, że ścieżka jest poprawna
+import { supabase } from '../../lib/supabase';
 import { useRouter } from 'next/navigation';
 
-export default function AuthPage() {
+export default function Logowanie() {
   const router = useRouter();
   
-  // Maszyna stanów: co aktualnie robimy?
-  const [view, setView] = useState<'login' | 'register' | 'forgot' | 'success'>('register');
+  // MASZYNA STANÓW: Zaczynamy od logowania (twój design)
+  const [view, setView] = useState<'login' | 'register' | 'forgot' | 'success'>('login');
   
-  // Dane z formularza
+  // DANE FORMULARZA
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [username, setUsername] = useState('');
   
-  // Komunikaty dla użytkownika
+  // STATUSY
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- 1. REJESTRACJA ---
+  // --- 1. LOGOWANIE ---
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setLoading(true);
+
+    const { error: authError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (authError) {
+      setErrorMsg('Nieprawidłowy e-mail lub hasło.');
+      setLoading(false);
+    } else {
+      router.push('/');
+      router.refresh(); 
+    }
+  };
+
+  // --- 2. REJESTRACJA (Z naszymi "bramkarzami") ---
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg('');
 
+    // Bramkarz 1: Hasła
+    if (password !== confirmPassword) {
+      setErrorMsg('Podane hasła się od siebie różnią!');
+      setLoading(false);
+      return;
+    }
+
+    // Bramkarz 2: Nick
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('username')
+      .eq('username', username)
+      .single();
+
+    if (existingUser) {
+      setErrorMsg('Ten nick jest już zajęty. Wymyśl inny!');
+      setLoading(false);
+      return;
+    }
+
+    // Właściwa rejestracja
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -33,10 +75,9 @@ export default function AuthPage() {
     });
 
     if (error) {
-      // Magia: Łapiemy błąd, że użytkownik już istnieje!
       if (error.message.includes('already registered')) {
-        setErrorMsg('Ten e-mail jest już w naszej bazie. Zaloguj się lub zresetuj hasło.');
-        setView('login'); // Automatycznie przełączamy na widok logowania
+        setErrorMsg('Ten e-mail jest już w bazie. Zaloguj się.');
+        setView('login');
       } else {
         setErrorMsg(error.message);
       }
@@ -44,22 +85,7 @@ export default function AuthPage() {
       setSuccessMsg(`Wysłaliśmy link aktywacyjny na adres ${email}. Sprawdź folder Spam!`);
       setView('success');
     }
-    setLoading(false);
-  };
-
-  // --- 2. LOGOWANIE ---
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setErrorMsg('');
-
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-
-    if (error) {
-      setErrorMsg('Nieprawidłowy e-mail lub hasło.');
-    } else {
-      router.push('/'); // Sukces -> lecimy na stronę główną!
-    }
+    
     setLoading(false);
   };
 
@@ -69,8 +95,6 @@ export default function AuthPage() {
     setLoading(true);
     setErrorMsg('');
 
-    // Wysyłamy maila z linkiem do resetu. 
-    // redirectTo to strona, na której klient FAKTYCZNIE wpisze nowe hasło.
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/ustaw-nowe-haslo`,
     });
@@ -84,84 +108,112 @@ export default function AuthPage() {
     setLoading(false);
   };
 
+  // --- CZYSZCZENIE BŁĘDÓW PRZY ZMIANIE WIDOKU ---
+  const switchView = (newView: 'login' | 'register' | 'forgot') => {
+    setErrorMsg('');
+    setView(newView);
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl transition-all duration-300">
+    <main className="min-h-[80vh] flex items-center justify-center p-4">
+      <div className="bg-white p-8 rounded-3xl shadow-xl border w-full max-w-md transition-all duration-300">
         
-        {/* --- EKRAN SUKCESU --- */}
+        {/* --- DYNAMICZNY NAGŁÓWEK --- */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">
+            {view === 'success' ? '💌' : view === 'forgot' ? '🔑' : '🦎'}
+          </div>
+          <h1 className="text-3xl font-black text-gray-900 mb-2">
+            {view === 'login' && 'Witaj ponownie'}
+            {view === 'register' && 'Dołącz do nas'}
+            {view === 'forgot' && 'Reset hasła'}
+            {view === 'success' && 'Sprawdź skrzynkę!'}
+          </h1>
+          <p className="text-gray-500 font-medium">
+            {view === 'login' && 'Zaloguj się do swojego konta'}
+            {view === 'register' && 'Stwórz profil hodowcy'}
+            {view === 'forgot' && 'Podaj maila, by odzyskać dostęp'}
+            {view === 'success' && 'Wysłaliśmy Ci ważną wiadomość'}
+          </p>
+        </div>
+
+        {/* --- WIDOK SUKCESU MAILA --- */}
         {view === 'success' ? (
-          <div className="text-center animate-in zoom-in-95 duration-500">
-            <div className="text-6xl mb-4">💌</div>
-            <h2 className="text-2xl font-black text-gray-900 mb-2">Sprawdź skrzynkę!</h2>
-            <p className="text-gray-500 font-medium mb-6">{successMsg}</p>
-            <button onClick={() => setView('login')} className="bg-black text-white px-6 py-3 rounded-xl font-bold">
+          <div className="text-center animate-in zoom-in-95">
+            <p className="text-gray-600 font-medium mb-6 text-lg">{successMsg}</p>
+            <button onClick={() => switchView('login')} className="bg-black text-white px-6 py-4 rounded-xl font-bold text-lg w-full">
               Wróć do logowania
             </button>
           </div>
         ) : (
           
-        /* --- EKRANY FORMULARZY --- */
-          <div className="animate-in fade-in slide-in-from-bottom-2">
-            <h2 className="text-2xl font-black mb-6">
-              {view === 'register' ? 'Załóż konto' : view === 'login' ? 'Zaloguj się' : 'Odzyskaj hasło'}
-            </h2>
-
-            {/* Wyświetlanie błędów */}
+          /* --- WIDOKI FORMULARZY (Z Twoim designem) --- */
+          <div className="animate-in fade-in">
             {errorMsg && (
-              <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm font-bold rounded-xl border border-red-100">
-                ⚠️ {errorMsg}
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 font-bold text-sm text-center border border-red-100">
+                {errorMsg}
               </div>
             )}
 
-            <form onSubmit={view === 'register' ? handleSignUp : view === 'login' ? handleSignIn : handleResetPassword} className="space-y-4">
+            <form onSubmit={view === 'register' ? handleSignUp : view === 'login' ? handleLogin : handleResetPassword} className="space-y-5">
               
-              {/* Nick (Tylko przy rejestracji) */}
+              {/* NICK (Tylko Rejestracja) */}
               {view === 'register' && (
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Twój Nick</label>
-                  <input required type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" />
+                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" />
                 </div>
               )}
 
-              {/* Email (Zawsze widoczny) */}
+              {/* EMAIL (Zawsze) */}
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Adres E-mail</label>
-                <input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" autoComplete="email" />
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" />
               </div>
 
-              {/* Hasło (Niewidoczne tylko przy resecie) */}
+              {/* HASŁA (Znikają tylko przy resecie) */}
               {view !== 'forgot' && (
-                <div>
-                  <div className="flex justify-between items-center mb-1">
-                    <label className="block text-xs font-bold text-gray-500 uppercase">Hasło</label>
-                    {view === 'login' && (
-                      <button type="button" onClick={() => setView('forgot')} className="text-xs font-bold text-green-600 hover:text-green-700">
-                        Zapomniałeś?
-                      </button>
-                    )}
+                <>
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-500 uppercase">Hasło</label>
+                      {view === 'login' && (
+                        <button type="button" onClick={() => switchView('forgot')} className="text-xs text-green-600 font-bold hover:underline">
+                          Zapomniałeś hasła?
+                        </button>
+                      )}
+                    </div>
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete={view === 'register' ? 'new-password' : 'current-password'} className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" />
                   </div>
-                  <input required type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" autoComplete={view === 'register' ? 'new-password' : 'current-password'} />
-                </div>
+
+                  {/* POWTÓRZ HASŁO (Tylko Rejestracja) */}
+                  {view === 'register' && (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Powtórz Hasło</label>
+                      <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required autoComplete="new-password" className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" />
+                    </div>
+                  )}
+                </>
               )}
 
-              {/* Przycisk Główny */}
-              <button disabled={loading} type="submit" className="w-full bg-green-500 hover:bg-green-600 text-black font-black p-4 rounded-xl transition disabled:opacity-50 mt-4">
-                {loading ? 'Przetwarzanie...' : view === 'register' ? 'Zarejestruj się' : view === 'login' ? 'Wejdź do giełdy' : 'Wyślij link do resetu'}
+              {/* PRZYCISK ZATWIERDZAJĄCY */}
+              <button type="submit" disabled={loading} className="w-full bg-black text-white p-4 rounded-xl hover:bg-gray-800 font-black text-lg disabled:bg-gray-400 transition shadow-md mt-2">
+                {loading ? 'Przetwarzanie...' : view === 'register' ? 'Zarejestruj się' : view === 'login' ? 'Zaloguj się' : 'Wyślij instrukcje'}
               </button>
             </form>
 
-            {/* Zmiana trybów na dole */}
-            <div className="mt-6 text-center text-sm font-medium text-gray-500">
-              {view === 'register' ? (
-                <>Masz już konto? <button onClick={() => setView('login')} className="text-black font-black hover:underline">Zaloguj się</button></>
+            {/* DYNAMICZNA STOPKA (Przełączanie widoków bez linków Next.js) */}
+            <p className="text-center mt-8 text-sm text-gray-500 font-medium">
+              {view === 'login' ? (
+                <>Nie masz jeszcze konta? <button onClick={() => switchView('register')} className="text-green-600 font-bold hover:underline">Zarejestruj się</button></>
               ) : (
-                <>Nie masz konta? <button onClick={() => setView('register')} className="text-black font-black hover:underline">Załóż je teraz</button></>
+                <>Masz już konto? <button onClick={() => switchView('login')} className="text-green-600 font-bold hover:underline">Zaloguj się tutaj</button></>
               )}
-            </div>
-
+            </p>
           </div>
         )}
+        
       </div>
-    </div>
+    </main>
   );
 }

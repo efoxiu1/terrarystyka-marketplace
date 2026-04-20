@@ -39,15 +39,13 @@ export default function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // NOWOŚĆ: Pobieranie powiadomień ZALEŻNE OD ZALOGOWANEGO UŻYTKOWNIKA
-  
+  // Pobieranie powiadomień ZALEŻNE OD ZALOGOWANEGO UŻYTKOWNIKA
   useEffect(() => {
     if (!user) {
       setUnreadCount(0);
       return;
     }
 
-    // Funkcja licząca (zostaje bez zmian)
     const fetchUnreadCount = async () => {
       const { count, error } = await supabase
         .from('messages')
@@ -60,32 +58,29 @@ export default function Navbar() {
       }
     };
 
-    // 1. Pierwsze pobranie licznika przy wejściu na stronę
     fetchUnreadCount();
 
-    // 2. Odpalamy antenę czasu rzeczywistego!
     const channel = supabase
       .channel('navbar_unread_updates')
       .on(
         'postgres_changes',
         {
-          event: '*', // Gwiazdka oznacza: reaguj na nowe wiadomości (INSERT) ORAZ odczytania (UPDATE)
+          event: '*', 
           schema: 'public',
           table: 'messages',
-          filter: `receiver_id=eq.${user.id}` // Nasłuchuj tylko wtedy, gdy ktoś pisze DO NAS
+          filter: `receiver_id=eq.${user.id}`
         },
         () => {
-          // Gdy coś w bazie drgnie, każ Navbarowi natychmiast przeliczyć bąbelek
           fetchUnreadCount();
         }
       )
       .subscribe();
 
-    // 3. Sprzątanie: wyłączamy antenę, gdy użytkownik się wyloguje
     return () => {
       supabase.removeChannel(channel);
     };
   }, [user]);
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/');
@@ -109,7 +104,6 @@ export default function Navbar() {
             <>
               <Link href="/dodaj-ogloszenie" className="hover:text-green-200 transition font-bold">+ Dodaj ogłoszenie</Link>
               
-              {/* NAPRAWIONE: Wiadomości z bąbelkiem dla komputerów */}
               <Link href="/wiadomosci" className="relative hover:text-green-200 transition font-bold flex items-center">
                 Wiadomości
                 {unreadCount > 0 && (
@@ -126,7 +120,8 @@ export default function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/logowanie" className="hover:text-green-200 transition font-bold">Zaloguj się</Link>
+              {/* ZMIANA: Oba linki prowadzą teraz do /rejestracja */}
+              <Link href="/rejestracja" className="hover:text-green-200 transition font-bold">Zaloguj się</Link>
               <Link href="/rejestracja" className="bg-white text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-100 transition shadow-sm">
                 Załóż konto
               </Link>
@@ -154,7 +149,6 @@ export default function Navbar() {
           <div className="flex flex-col p-4 gap-4 text-white font-bold text-center">
             <Link href="/dodaj-ogloszenie" onClick={() => setIsMenuOpen(false)} className="hover:text-green-200 p-2">+ Dodaj ogłoszenie</Link>
             
-            {/* NAPRAWIONE: Czyste style zintegrowane z mobilnym menu */}
             <div className="flex justify-center">
               <Link href="/wiadomosci" onClick={() => setIsMenuOpen(false)} className="relative inline-flex items-center gap-2 hover:text-green-200 p-2 transition">
                 <span>✉️ Wiadomości</span>
@@ -171,7 +165,8 @@ export default function Navbar() {
           </div>
         ) : (
           <div className="flex flex-col p-4 gap-4 text-white font-bold text-center">
-            <Link href="/logowanie" onClick={() => setIsMenuOpen(false)} className="hover:text-green-200 p-2">Zaloguj się</Link>
+            {/* ZMIANA: Oba linki w menu mobilnym prowadzą do /rejestracja */}
+            <Link href="/rejestracja" onClick={() => setIsMenuOpen(false)} className="hover:text-green-200 p-2">Zaloguj się</Link>
             <Link href="/rejestracja" onClick={() => setIsMenuOpen(false)} className="bg-white text-green-700 p-3 rounded-lg mt-2">Załóż konto</Link>
           </div>
         )}
