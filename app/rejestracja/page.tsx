@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '../lib/supabase'; // Upewnij się, że ścieżka jest poprawna
+import { supabase } from '../../lib/supabase'; // Upewnij się, że ścieżka jest poprawna
 import { useRouter } from 'next/navigation';
 
 export default function AuthPage() {
