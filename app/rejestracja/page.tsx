@@ -16,7 +16,8 @@ export default function Rejestracja() {
   
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-
+  // Na górze komponentu, obok innych stanów:
+  const [emailSent, setEmailSent] = useState(false);
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -63,14 +64,34 @@ export default function Rejestracja() {
         .update({ phone: phone })
         .eq('id', data.user.id);
         
-      // Sukces! Przekierowujemy do uzupełnienia profilu lub na stronę główną
-      router.push('/moje-konto');
+            if (error) {
+          // obsługa błędów (np. wyświetlenie na czerwono)
+        } else {
+          // ZAMIAST router.push() -> Pokazujemy ekran sukcesu
+          setEmailSent(true);
+        }
     }
   };
 
   return (
     <main className="min-h-[80vh] flex items-center justify-center p-4">
       <div className="bg-white p-8 rounded-3xl shadow-xl border w-full max-w-md">
+        
+        {emailSent ? (
+        // --- EKRAN SUKCESU ---
+        <div className="text-center animate-in zoom-in-95 duration-500">
+          <div className="text-6xl mb-4">💌</div>
+          <h2 className="text-2xl font-black text-gray-900 mb-2">Sprawdź skrzynkę!</h2>
+          <p className="text-gray-500 font-medium mb-6">
+            Wysłaliśmy link aktywacyjny na adres <span className="text-black font-bold">{email}</span>. 
+            Kliknij w niego, aby obudzić swoje konto do życia.
+          </p>
+          <div className="p-4 bg-yellow-50 rounded-xl text-yellow-800 text-sm font-medium">
+            💡 Nie widzisz maila? Sprawdź folder <strong>Spam</strong> lub <strong>Oferty</strong>.
+          </div>
+        </div>
+      ) : (
+        <>
         <h1 className="text-3xl font-black text-gray-900 mb-2 text-center">Dołącz do nas</h1>
         <p className="text-gray-500 text-center mb-8 font-medium">Załóż konto, aby sprzedawać i kupować</p>
 
@@ -109,7 +130,8 @@ export default function Rejestracja() {
             {loading ? 'Tworzenie konta...' : 'Zarejestruj się'}
           </button>
         </form>
-
+        </>
+        )}
         <p className="text-center mt-8 text-sm text-gray-500 font-medium">
           Masz już konto? <Link href="/logowanie" className="text-green-600 font-bold hover:underline">Zaloguj się</Link>
         </p>
