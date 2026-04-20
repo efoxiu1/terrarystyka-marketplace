@@ -468,8 +468,25 @@ const handleAddCategory = async (e: React.FormEvent) => {
                          <select value={selectedCategoryId} onChange={e => setSelectedCategoryId(e.target.value)} className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-black">
                             <option value="" disabled>Przypisz do kategorii...</option>
                             {/* Wyświetlamy tylko kategorie sprzężone ze zwierzętami (te bez parent_id) */}
-                            {categories.filter(c => !c.parent_id).map(c => (
-                               <option key={c.id} value={c.id}>{c.name}</option>
+                            {categories.filter(c => !c.parent_id).map(mainCat => (
+                              <optgroup key={mainCat.id} label={mainCat.name}>
+                                
+                                {/* Opcja 1: Przypisanie do głównej kategorii (Dla ogólnych gatunków) */}
+                                <option value={mainCat.id} className="font-bold text-gray-900">
+                                  [Główna] {mainCat.name}
+                                </option>
+                                
+                                {/* Opcja 2: Przypisanie do podkategorii (Dla konkretnych gatunków) */}
+                                {categories
+                                  .filter(subCat => subCat.parent_id === mainCat.id)
+                                  .map(subCat => (
+                                    <option key={subCat.id} value={subCat.id} className="text-gray-600">
+                                      &nbsp;&nbsp;&nbsp;↳ {subCat.name}
+                                    </option>
+                                  ))
+                                }
+                                
+                              </optgroup>
                             ))}
                          </select>
                       </div>
@@ -789,8 +806,24 @@ const handleAddCategory = async (e: React.FormEvent) => {
                   onChange={(e) => setActiveSuggestionCat(e.target.value)}
                   className="w-full bg-white border border-blue-200 rounded-2xl px-4 py-4 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-gray-800 shadow-sm"
                 >
-                  <option value="" disabled>Wybierz kategorię...</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="">Wybierz kategorię lub podkategorię...</option>
+  
+                  {/* Drzewko Kategorii */}
+                  {categories.filter(c => !c.parent_id).map(mainCat => (
+                    <optgroup key={mainCat.id} label={mainCat.name}>
+                      <option value={mainCat.id} className="font-bold text-gray-900">
+                        [Główna] {mainCat.name}
+                      </option>
+                      {categories
+                        .filter(subCat => subCat.parent_id === mainCat.id)
+                        .map(subCat => (
+                          <option key={subCat.id} value={subCat.id} className="text-gray-600">
+                            &nbsp;&nbsp;&nbsp;↳ {subCat.name}
+                          </option>
+                        ))
+                      }
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 
@@ -798,26 +831,44 @@ const handleAddCategory = async (e: React.FormEvent) => {
               <div className="w-full lg:w-2/3">
                  <label className="block text-xs font-black text-blue-800 uppercase tracking-widest mb-3">2. System poleci mu to:</label>
                  {activeSuggestionCat ? (
-                   <div className="bg-white p-4 rounded-2xl border border-blue-200 h-72 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2 shadow-sm custom-scrollbar">
-                     {categories.filter(c => c.id !== activeSuggestionCat).map(targetCat => {
-                       // Sprawdzamy czy powiązanie jest w naszym stanie (czyli czy checkbox ma być zaznaczony)
-                       const isLinked = suggestions.some(s => s.source_category_id === activeSuggestionCat && s.suggested_category_id === targetCat.id);
-                       
-                       return (
-                         <label key={targetCat.id} className={`flex items-center gap-3 p-4 rounded-xl cursor-pointer transition border-2 ${isLinked ? 'bg-blue-50 border-blue-400' : 'hover:bg-gray-50 border-transparent'}`}>
-                           <input
-                             type="checkbox"
-                             checked={isLinked}
-                             onChange={() => toggleSuggestion(activeSuggestionCat, targetCat.id)}
-                             className="w-6 h-6 accent-blue-600 rounded shrink-0 cursor-pointer"
-                           />
-                           <div className="min-w-0">
-                             <span className={`block font-bold text-sm truncate ${isLinked ? 'text-blue-900' : 'text-gray-700'}`}>{targetCat.name}</span>
-                             {targetCat.parent_id && <span className="block text-[10px] text-gray-400 uppercase font-black mt-0.5">Podkategoria</span>}
-                           </div>
-                         </label>
-                       );
-                     })}
+                   <div className="bg-white p-4 rounded-2xl border border-blue-200 h-72 overflow-y-auto grid grid-cols-1 gap-4 shadow-sm custom-scrollbar">
+                     
+                     {/* Tutaj też renderujemy w formie drzewka, żeby było czytelniej */}
+                     {categories.filter(c => !c.parent_id).map(mainCat => (
+                       <div key={mainCat.id} className="mb-4">
+                         
+                         {/* Główna kategoria jako checkbox */}
+                         {mainCat.id !== activeSuggestionCat && (
+                           <label className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition border-2 ${suggestions.some(s => s.source_category_id === activeSuggestionCat && s.suggested_category_id === mainCat.id) ? 'bg-blue-50 border-blue-400' : 'hover:bg-gray-50 border-transparent'}`}>
+                             <input
+                               type="checkbox"
+                               checked={suggestions.some(s => s.source_category_id === activeSuggestionCat && s.suggested_category_id === mainCat.id)}
+                               onChange={() => toggleSuggestion(activeSuggestionCat, mainCat.id)}
+                               className="w-6 h-6 accent-blue-600 rounded shrink-0 cursor-pointer"
+                             />
+                             <span className="block font-black text-sm text-gray-900">[Główna] {mainCat.name}</span>
+                           </label>
+                         )}
+
+                         {/* Jej podkategorie jako checkboxy */}
+                         <div className="pl-8 mt-1 space-y-1">
+                           {categories.filter(subCat => subCat.parent_id === mainCat.id && subCat.id !== activeSuggestionCat).map(subCat => {
+                             const isLinked = suggestions.some(s => s.source_category_id === activeSuggestionCat && s.suggested_category_id === subCat.id);
+                             return (
+                               <label key={subCat.id} className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition border ${isLinked ? 'bg-blue-50 border-blue-400' : 'hover:bg-gray-50 border-transparent'}`}>
+                                 <input
+                                   type="checkbox"
+                                   checked={isLinked}
+                                   onChange={() => toggleSuggestion(activeSuggestionCat, subCat.id)}
+                                   className="w-5 h-5 accent-blue-600 rounded shrink-0 cursor-pointer"
+                                 />
+                                 <span className="block font-medium text-sm text-gray-700">↳ {subCat.name}</span>
+                               </label>
+                             );
+                           })}
+                         </div>
+                       </div>
+                     ))}
                    </div>
                  ) : (
                    <div className="bg-white/40 border-2 border-blue-200 border-dashed rounded-2xl h-72 flex flex-col items-center justify-center text-blue-400">

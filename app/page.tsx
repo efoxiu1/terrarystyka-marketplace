@@ -70,7 +70,21 @@ export default function Home() {
   useEffect(() => {
     let result = listings;
 
-    if (searchTerm) result = result.filter(ad => ad.title.toLowerCase().includes(searchTerm.toLowerCase()));
+   if (searchTerm) {
+      const query = searchTerm.toLowerCase();
+      
+      result = result.filter(ad => {
+        // 1. Sprawdzamy, czy fraza jest w tytule
+        const inTitle = ad.title.toLowerCase().includes(query);
+        
+        // 2. Sprawdzamy, czy fraza jest w nazwie kategorii 
+        // (używamy ad.category?, żeby aplikacja nie wybuchła, jeśli kategoria jest pusta)
+        const inCategory = ad.category?.toLowerCase().includes(query);
+
+        // Zwracamy TRUE, jeśli chociaż jedno z powyższych to prawda
+        return inTitle || inCategory;
+      });
+    }
 
     if (selectedSubId) {
       const subCat = dbCategories.find(c => c.id === selectedSubId);
@@ -89,26 +103,46 @@ export default function Home() {
     setFilteredListings(result);
   }, [listings, searchTerm, selectedParentId, selectedSubId, selectedSpeciesId, minPrice, maxPrice, dbCategories]);
 
-  // POMOCNICY UI
+ // --- POMOCNICY UI (KULOODPORNI) ---
   const mainCats = dbCategories.filter(c => !c.parent_id);
-  const subCats = dbCategories.filter(c => c.parent_id === selectedParentId);
-  const currentCatObj = selectedSubId ? dbCategories.find(c => c.id === selectedSubId) : dbCategories.find(c => c.id === selectedParentId);
-  const showSpeciesFilter = currentCatObj ? currentCatObj.requires_species : true;
+  
+  // Wymuszamy typ String, żeby uniknąć konfliktów typu 123 !== "123"
+  const subCats = dbCategories.filter(c => String(c.parent_id) === String(selectedParentId));
+  
+  const currentCatObj = selectedSubId 
+    ? dbCategories.find(c => String(c.id) === String(selectedSubId)) 
+    : dbCategories.find(c => String(c.id) === String(selectedParentId));
+    
+  const parentCatObj = selectedParentId 
+    ? dbCategories.find(c => String(c.id) === String(selectedParentId)) 
+    : null;
+
+  // POPRAWKA 1: Dziedziczenie. Jeśli "Węże" wymagają gatunku, to "Pytony" z automatu też!
+  const showSpeciesFilter = currentCatObj 
+    ? (currentCatObj.requires_species || parentCatObj?.requires_species) 
+    : true;
 
   const availableSpecies = dbSpecies.filter(s => {
-    // 1. Jeśli wybrano podkategorię (np. Pytony) - bierzemy tylko gatunki przypisane do niej
-    if (selectedSubId) return s.category_id === selectedSubId;
+    // POPRAWKA 2: Mocne i bezpieczne porównywanie ID
     
-    // 2. Jeśli wybrano kategorię główną (np. Węże) - bierzemy gatunki z głównej ORAZ z jej podkategorii
-    if (selectedParentId) {
-      const childIds = dbCategories.filter(c => c.parent_id === selectedParentId).map(c => c.id);
-      return s.category_id === selectedParentId || childIds.includes(s.category_id);
+    // 1. Wybrano podkategorię (np. Pytony)
+    if (selectedSubId) {
+      return String(s.category_id) === String(selectedSubId);
     }
     
-    // 3. Brak wybranej kategorii - pokazujemy wszystko
+    // 2. Wybrano tylko kategorię główną (np. Węże)
+    if (selectedParentId) {
+      const childIds = dbCategories
+        .filter(c => String(c.parent_id) === String(selectedParentId))
+        .map(c => String(c.id));
+        
+      return String(s.category_id) === String(selectedParentId) || childIds.includes(String(s.category_id));
+    }
+    
+    // 3. Nic nie wybrano
     return true; 
   });
-
+  
   const clearFilters = () => {
     setSearchTerm('');
     setSelectedParentId('');

@@ -643,6 +643,7 @@ const handleSubmit = async (e: React.FormEvent) => {
           </div>
         </div>
         {/* SEKCJA: E-COMMERCE I WARIANTY */}
+{/*     
         {dbCategories.find(c => c.name === category)?.requires_species === false && (
         <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 animate-in fade-in slide-in-from-bottom-4">
           <div className="flex items-center justify-between mb-4">
@@ -660,10 +661,10 @@ const handleSubmit = async (e: React.FormEvent) => {
             </label>
           </div>
 
-          {/* DYNAMICZNA LISTA WARIANTÓW (Pojawia się tylko gdy Kup Teraz jest ON) */}
+
           {allowBuyNow && (
             <div className="mt-6 border-t border-gray-200 pt-6 animate-in fade-in slide-in-from-top-4">
-              {/* --- DYNAMICZNY ANALIZATOR LOGISTYKI --- */}
+    
               {shippingTier !== 'none' && (
                 <div className={`mb-6 p-4 rounded-xl border-2 flex items-start gap-4 shadow-sm transition-all duration-300 ${
                   shippingTier === 'pallet' ? 'bg-red-50 border-red-200' :
@@ -699,7 +700,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                   </div>
                 </div>
               )}
-              {/* -------------------------------------- */}
+           
               <div className="flex justify-between items-center mb-4">
                 <h4 className="text-sm font-bold text-gray-700">Warianty produktu (Opcjonalnie)</h4>
                 <button type="button" onClick={addVariant} className="bg-black text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-gray-800 transition">
@@ -730,7 +731,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                       <button type="button" onClick={() => removeVariant(variant.id)} className="mt-5 text-red-500 hover:text-red-700 p-2">🗑️</button>
                     </div>
                     
-                    {/* Logistyka dla wariantu */}
+              
                     <div className="grid grid-cols-4 gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100">
                       <div>
                          <label className="block text-[9px] font-black text-blue-800 uppercase mb-1">Waga (kg)</label>
@@ -755,7 +756,9 @@ const handleSubmit = async (e: React.FormEvent) => {
             </div>
           )}
         </div>
+        
         )}
+         */}
         {/* --- KROK 4: TYTUŁ, OPIS, CENA I ILOŚĆ --- */}
         <div className="space-y-4">
            <input type="text" required placeholder="Tytuł ogłoszenia" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none focus:bg-white focus:ring-2 focus:ring-black transition font-bold text-lg" />

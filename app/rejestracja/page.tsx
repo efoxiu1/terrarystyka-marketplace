@@ -89,12 +89,13 @@ export default function Rejestracja() {
 
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Hasło</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
+            <input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Powtórz Hasło</label>
-            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
+            
+            <input type="password"  autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
           </div>
 
           <div className="flex items-start gap-3 mt-4 bg-gray-50 p-4 rounded-xl border">
