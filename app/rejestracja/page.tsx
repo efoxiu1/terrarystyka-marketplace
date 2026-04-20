@@ -1,141 +1,167 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase'; // Upewnij się, że ścieżka jest poprawna
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
-export default function Rejestracja() {
+export default function AuthPage() {
   const router = useRouter();
   
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  // Maszyna stanów: co aktualnie robimy?
+  const [view, setView] = useState<'login' | 'register' | 'forgot' | 'success'>('register');
   
-  const [error, setError] = useState('');
+  // Dane z formularza
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('');
+  
+  // Komunikaty dla użytkownika
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
-  // Na górze komponentu, obok innych stanów:
-  const [emailSent, setEmailSent] = useState(false);
-  const handleSignup = async (e: React.FormEvent) => {
+
+  // --- 1. REJESTRACJA ---
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
+    setErrorMsg('');
 
-    // 1. NASZA TARCZA OBRONNA (Walidacja)
-    if (password !== confirmPassword) {
-      setError('Hasła nie są identyczne. Spróbuj ponownie!');
-      setLoading(false);
-      return;
-    }
-    if (password.length < 6) {
-      setError('Hasło musi mieć co najmniej 6 znaków.');
-      setLoading(false);
-      return;
-    }
-    if (!termsAccepted) {
-      setError('Musisz zaakceptować regulamin, aby założyć konto.');
-      setLoading(false);
-      return;
-    }
-    if (phone.length < 9) {
-      setError('Podaj poprawny numer telefonu.');
-      setLoading(false);
-      return;
-    }
-
-    // 2. Właściwa rejestracja w Supabase
-    const { data, error: authError } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: { data: { username } }
     });
 
-    if (authError) {
-      setError('Błąd rejestracji: ' + authError.message);
-      setLoading(false);
-      return;
+    if (error) {
+      // Magia: Łapiemy błąd, że użytkownik już istnieje!
+      if (error.message.includes('already registered')) {
+        setErrorMsg('Ten e-mail jest już w naszej bazie. Zaloguj się lub zresetuj hasło.');
+        setView('login'); // Automatycznie przełączamy na widok logowania
+      } else {
+        setErrorMsg(error.message);
+      }
+    } else {
+      setSuccessMsg(`Wysłaliśmy link aktywacyjny na adres ${email}. Sprawdź folder Spam!`);
+      setView('success');
     }
+    setLoading(false);
+  };
 
-    // 3. Zapisujemy numer telefonu do profilu użytkownika
-    if (data.user) {
-      await supabase
-        .from('profiles')
-        .update({ phone: phone })
-        .eq('id', data.user.id);
-        
-            if (error) {
-          // obsługa błędów (np. wyświetlenie na czerwono)
-        } else {
-          // ZAMIAST router.push() -> Pokazujemy ekran sukcesu
-          setEmailSent(true);
-        }
+  // --- 2. LOGOWANIE ---
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg('');
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      setErrorMsg('Nieprawidłowy e-mail lub hasło.');
+    } else {
+      router.push('/'); // Sukces -> lecimy na stronę główną!
     }
+    setLoading(false);
+  };
+
+  // --- 3. RESET HASŁA ---
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg('');
+
+    // Wysyłamy maila z linkiem do resetu. 
+    // redirectTo to strona, na której klient FAKTYCZNIE wpisze nowe hasło.
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/ustaw-nowe-haslo`,
+    });
+
+    if (error) {
+      setErrorMsg(error.message);
+    } else {
+      setSuccessMsg(`Wysłaliśmy instrukcję resetu hasła na adres ${email}.`);
+      setView('success');
+    }
+    setLoading(false);
   };
 
   return (
-    <main className="min-h-[80vh] flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-3xl shadow-xl border w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl transition-all duration-300">
         
-        {emailSent ? (
-        // --- EKRAN SUKCESU ---
-        <div className="text-center animate-in zoom-in-95 duration-500">
-          <div className="text-6xl mb-4">💌</div>
-          <h2 className="text-2xl font-black text-gray-900 mb-2">Sprawdź skrzynkę!</h2>
-          <p className="text-gray-500 font-medium mb-6">
-            Wysłaliśmy link aktywacyjny na adres <span className="text-black font-bold">{email}</span>. 
-            Kliknij w niego, aby obudzić swoje konto do życia.
-          </p>
-          <div className="p-4 bg-yellow-50 rounded-xl text-yellow-800 text-sm font-medium">
-            💡 Nie widzisz maila? Sprawdź folder <strong>Spam</strong> lub <strong>Oferty</strong>.
+        {/* --- EKRAN SUKCESU --- */}
+        {view === 'success' ? (
+          <div className="text-center animate-in zoom-in-95 duration-500">
+            <div className="text-6xl mb-4">💌</div>
+            <h2 className="text-2xl font-black text-gray-900 mb-2">Sprawdź skrzynkę!</h2>
+            <p className="text-gray-500 font-medium mb-6">{successMsg}</p>
+            <button onClick={() => setView('login')} className="bg-black text-white px-6 py-3 rounded-xl font-bold">
+              Wróć do logowania
+            </button>
           </div>
-        </div>
-      ) : (
-        <>
-        <h1 className="text-3xl font-black text-gray-900 mb-2 text-center">Dołącz do nas</h1>
-        <p className="text-gray-500 text-center mb-8 font-medium">Załóż konto, aby sprzedawać i kupować</p>
+        ) : (
+          
+        /* --- EKRANY FORMULARZY --- */
+          <div className="animate-in fade-in slide-in-from-bottom-2">
+            <h2 className="text-2xl font-black mb-6">
+              {view === 'register' ? 'Załóż konto' : view === 'login' ? 'Zaloguj się' : 'Odzyskaj hasło'}
+            </h2>
 
-        {error && <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 font-bold text-sm text-center border border-red-100">{error}</div>}
+            {/* Wyświetlanie błędów */}
+            {errorMsg && (
+              <div className="mb-4 p-3 bg-red-50 text-red-700 text-sm font-bold rounded-xl border border-red-100">
+                ⚠️ {errorMsg}
+              </div>
+            )}
 
-        <form onSubmit={handleSignup} className="space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Adres E-mail</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
+            <form onSubmit={view === 'register' ? handleSignUp : view === 'login' ? handleSignIn : handleResetPassword} className="space-y-4">
+              
+              {/* Nick (Tylko przy rejestracji) */}
+              {view === 'register' && (
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Twój Nick</label>
+                  <input required type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" />
+                </div>
+              )}
+
+              {/* Email (Zawsze widoczny) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Adres E-mail</label>
+                <input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" autoComplete="email" />
+              </div>
+
+              {/* Hasło (Niewidoczne tylko przy resecie) */}
+              {view !== 'forgot' && (
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="block text-xs font-bold text-gray-500 uppercase">Hasło</label>
+                    {view === 'login' && (
+                      <button type="button" onClick={() => setView('forgot')} className="text-xs font-bold text-green-600 hover:text-green-700">
+                        Zapomniałeś?
+                      </button>
+                    )}
+                  </div>
+                  <input required type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none" autoComplete={view === 'register' ? 'new-password' : 'current-password'} />
+                </div>
+              )}
+
+              {/* Przycisk Główny */}
+              <button disabled={loading} type="submit" className="w-full bg-green-500 hover:bg-green-600 text-black font-black p-4 rounded-xl transition disabled:opacity-50 mt-4">
+                {loading ? 'Przetwarzanie...' : view === 'register' ? 'Zarejestruj się' : view === 'login' ? 'Wejdź do giełdy' : 'Wyślij link do resetu'}
+              </button>
+            </form>
+
+            {/* Zmiana trybów na dole */}
+            <div className="mt-6 text-center text-sm font-medium text-gray-500">
+              {view === 'register' ? (
+                <>Masz już konto? <button onClick={() => setView('login')} className="text-black font-black hover:underline">Zaloguj się</button></>
+              ) : (
+                <>Nie masz konta? <button onClick={() => setView('register')} className="text-black font-black hover:underline">Załóż je teraz</button></>
+              )}
+            </div>
+
           </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Numer telefonu</label>
-            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} required placeholder="+48 000 000 000" className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Hasło</label>
-            <input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Powtórz Hasło</label>
-            
-            <input type="password"  autoComplete="new-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full border bg-gray-50 p-3 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition" />
-          </div>
-
-          <div className="flex items-start gap-3 mt-4 bg-gray-50 p-4 rounded-xl border">
-            <input type="checkbox" id="terms" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} className="mt-1 w-4 h-4 text-green-600 rounded cursor-pointer" />
-            <label htmlFor="terms" className="text-xs text-gray-600 font-medium cursor-pointer">
-              Akceptuję <Link href="#" className="text-green-600 underline">Regulamin</Link> serwisu oraz <Link href="#" className="text-green-600 underline">Politykę Prywatności</Link> (RODO).
-            </label>
-          </div>
-
-          <button type="submit" disabled={loading} className="w-full bg-green-600 text-white p-4 rounded-xl hover:bg-green-700 font-black text-lg disabled:bg-gray-400 transition shadow-md mt-4">
-            {loading ? 'Tworzenie konta...' : 'Zarejestruj się'}
-          </button>
-        </form>
-        </>
         )}
-        <p className="text-center mt-8 text-sm text-gray-500 font-medium">
-          Masz już konto? <Link href="/logowanie" className="text-green-600 font-bold hover:underline">Zaloguj się</Link>
-        </p>
       </div>
-    </main>
+    </div>
   );
 }
