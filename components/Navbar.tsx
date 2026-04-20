@@ -122,9 +122,6 @@ export default function Navbar() {
             <>
               {/* ZMIANA: Oba linki prowadzą teraz do /rejestracja */}
               <Link href="/rejestracja" className="hover:text-green-200 transition font-bold">Zaloguj się</Link>
-              <Link href="/rejestracja" className="bg-white text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-100 transition shadow-sm">
-                Załóż konto
-              </Link>
             </>
           )}
         </div>
