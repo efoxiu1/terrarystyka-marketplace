@@ -6,7 +6,39 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+// FUNKCJA POMOCNICZA: Generuje ładnego HTML-a dla maili
+const generateEmailTemplate = (title: string, message: string) => {
+  return `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
+      
+      <div style="background-color: #16a34a; padding: 30px 20px; text-align: center;">
+        <div style="font-size: 40px; margin-bottom: 10px;">🦎</div>
+        <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">Giełda Egzotyki</h1>
+      </div>
 
+      <div style="padding: 40px 30px; color: #374151;">
+        <h2 style="color: #111827; margin-top: 0; font-size: 20px; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px;">
+          ${title}
+        </h2>
+        <div style="font-size: 16px; line-height: 1.6; margin-top: 20px;">
+          ${message}
+        </div>
+
+        <div style="margin-top: 35px; padding: 15px 20px; background-color: #f9fafb; border-left: 4px solid #16a34a; border-radius: 4px;">
+          <p style="margin: 0; font-size: 14px; color: #4b5563;">
+            Wiadomość z systemu administracyjnego. Jeśli uważasz, że zaszła pomyłka, odpowiedz bezpośrednio na tego maila.
+          </p>
+        </div>
+      </div>
+
+      <div style="background-color: #f3f4f6; padding: 20px; text-align: center; border-top: 1px solid #e5e7eb;">
+        <p style="margin: 0; color: #9ca3af; font-size: 12px; font-weight: 500;">
+          © ${new Date().getFullYear()} GiełdaMVP. Wszystkie prawa zastrzeżone.
+        </p>
+      </div>
+    </div>
+  `;
+};
 export async function POST(req: Request) {
   try {
     // 1. Odbieramy czysty JSON od Supabase
@@ -75,7 +107,7 @@ export async function POST(req: Request) {
         from: 'EXOsphere <onboarding@resend.dev>', // Zmień to, gdy dodasz swoją domenę
         to: [userEmail],
         subject: subject,
-        html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Witaj,</h2><p>${content}</p></div>`,
+        html: generateEmailTemplate(subject, content),
       }),
     });
 
