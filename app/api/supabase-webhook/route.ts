@@ -72,7 +72,7 @@ export async function POST(req: Request) {
         'Authorization': `Bearer ${resendKey}`,
       },
       body: JSON.stringify({
-        from: 'Giełda Egzotyki <onboarding@resend.dev>', // Zmień to, gdy dodasz swoją domenę
+        from: 'EXOsphere <onboarding@resend.dev>', // Zmień to, gdy dodasz swoją domenę
         to: [userEmail],
         subject: subject,
         html: `<div style="font-family: sans-serif; padding: 20px;"><h2>Witaj,</h2><p>${content}</p></div>`,

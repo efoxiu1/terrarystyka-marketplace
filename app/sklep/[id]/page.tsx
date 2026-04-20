@@ -61,14 +61,31 @@ export default function StronaSklepu() {
       const reason = prompt('Podaj powód ostrzeżenia:');
       if (!reason) return;
       
+      // 1. Zapisujemy ostrzeżenie do osobnej tabeli (TO ODPALI WEBHOOKA I MAILA!)
+      const { error: warningError } = await supabase
+        .from('user_warnings')
+        .insert({
+          user_id: sellerId,
+          reason: reason
+        });
+
+      if (warningError) {
+        alert('❌ Błąd dodawania ostrzeżenia do bazy:\n' + warningError.message);
+        return; // Przerywamy, jeśli nie udało się zapisać ostrzeżenia
+      }
+
+      // 2. Aktualizujemy licznik w profilu, żeby Twój panel admina wyświetlał poprawną liczbę
       const newWarnings = (profile.warnings || 0) + 1;
-      const { error } = await supabase.from('profiles').update({ warnings: newWarnings }).eq('id', sellerId);
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({ warnings: newWarnings })
+        .eq('id', sellerId);
       
-      if (error) {
-        alert('❌ Błąd bazy danych:\n' + error.message);
+      if (profileError) {
+        alert('❌ Ostrzeżenie wysłane, ale wystąpił błąd przy odświeżaniu licznika w profilu:\n' + profileError.message);
       } else {
         setProfile({ ...profile, warnings: newWarnings });
-        alert('✅ Ostrzeżenie wysłane pomyślnie.');
+        alert('✅ Ostrzeżenie dodane pomyślnie. Mail został wysłany!');
       }
     } 
     else if (action === 'ban') {
@@ -84,6 +101,8 @@ export default function StronaSklepu() {
       }
 
       const newBanStatus = !isCurrentlyBanned;
+      
+      // Ban zmienia tylko tabelę profiles, co idealnie zgrywa się z Webhookiem na UPDATE
       const { error } = await supabase.from('profiles').update({ 
         is_banned: newBanStatus,
         ban_reason: reason
@@ -93,7 +112,7 @@ export default function StronaSklepu() {
         alert('❌ Błąd bazy danych:\n' + error.message);
       } else {
         setProfile({ ...profile, is_banned: newBanStatus, ban_reason: reason });
-        alert(newBanStatus ? '🔨 Użytkownik zbanowany.' : '✅ Konto odblokowane.');
+        alert(newBanStatus ? '🔨 Użytkownik zbanowany. System wyśle maila.' : '✅ Konto odblokowane.');
       }
     }
     else if (action === 'delete_review' && id) {
