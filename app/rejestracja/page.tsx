@@ -118,12 +118,17 @@ export default function Logowanie() {
     setLoading(true);
     setErrorMsg('');
     
-    // Supabase automatycznie przeniesie użytkownika na stronę Google/Facebooka
     const { error } = await supabase.auth.signInWithOAuth({
       provider: provider,
       options: {
-        // Po udanym logowaniu wracamy na stronę główną
-        redirectTo: `${window.location.origin}/` 
+        // ZMIANA TUTAJ: Zamiast na stronę główną ('/'), 
+        // odsyłamy do komponentu klienckiego, który na pewno zapisze sesję!
+        redirectTo: `${window.location.origin}/moje-konto`,
+        
+        // BONUS: Dodajemy parametry, żeby Google zapamiętało wybór i nie pytało w kółko
+        queryParams: {
+          prompt: 'select_account',
+        }
       }
     });
 
