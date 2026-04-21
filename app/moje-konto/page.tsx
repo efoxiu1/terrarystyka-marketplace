@@ -42,9 +42,9 @@ export default function MojeKonto() {
   const fetchData = async () => {
     setLoading(true);
 
-    // 1. Sprawdzamy sesję "na żywo"
+  // 1. Sprawdzamy sesję "na żywo"
     const { data: { session } } = await supabase.auth.getSession();
-    let currentUser = session?.user;
+    let currentUser = session?.user || null; // <--- DODALIŚMY "|| null"
 
     // 2. Jeśli nie ma sesji, sprawdzamy jeszcze raz getUser (na wszelki wypadek)
     if (!currentUser) {
