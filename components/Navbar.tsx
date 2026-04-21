@@ -95,7 +95,7 @@ export default function Navbar() {
         
         {/* LOGO */}
         <Link href="/" className="text-2xl font-black text-white shrink-0 tracking-tight">
-          GiełdaMVP
+          EXOsphere
         </Link>
 
         {/* --- MENU KOMPUTEROWE --- */}

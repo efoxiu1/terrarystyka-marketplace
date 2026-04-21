@@ -74,9 +74,8 @@ export async function POST(req: Request) {
             profileUpdates.max_active_listings = finalLimit;
 
             // Jeśli kupił pakiet o ID 'pro', dorzucamy do paczki status zweryfikowanego sprzedawcy!
-            if (order.package_id === 'pro') {
-                profileUpdates.is_verified_seller = true;
-            }
+            profileUpdates.is_verified_seller = true;
+        
 
             // Aktualizujemy profil jednym strzałem
             const { error: profileError } = await supabaseAdmin

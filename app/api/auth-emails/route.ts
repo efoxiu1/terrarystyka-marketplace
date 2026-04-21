@@ -6,7 +6,7 @@ const generateEmailTemplate = (title: string, message: string) => {
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
       <div style="background-color: #16a34a; padding: 30px 20px; text-align: center;">
         <div style="font-size: 40px; margin-bottom: 10px;">🦎</div>
-        <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">Giełda Egzotyki</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 0.5px;">EXOsphere</h1>
       </div>
       <div style="padding: 40px 30px; color: #374151;">
         <h2 style="color: #111827; margin-top: 0; font-size: 20px; border-bottom: 2px solid #f3f4f6; padding-bottom: 15px;">
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
     const subject = 'Próba rejestracji - Konto już istnieje! ⚠️';
     const content = `
-      Ktoś (mamy nadzieję, że Ty!) próbował założyć nowe konto na Giełdzie Egzotyki, używając tego adresu e-mail.<br><br>
+      Ktoś (mamy nadzieję, że Ty!) próbował założyć nowe konto na EXOsphere, używając tego adresu e-mail.<br><br>
       <strong>Informujemy, że konto przypisane do tego adresu już istnieje.</strong><br><br>
       Nie musisz zakładać go ponownie. Jeśli nie pamiętasz hasła, przejdź na stronę logowania i kliknij "Zapomniałem hasła".
     `;
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
         'Authorization': `Bearer ${resendKey}`,
       },
       body: JSON.stringify({
-        from: 'Giełda Egzotyki <onboarding@resend.dev>', // Zmień na swoją domenę po wyjściu z Sandboxa
+        from: 'EXOsphere <onboarding@resend.dev>', // Zmień na swoją domenę po wyjściu z Sandboxa
         to: [email],
         subject: subject,
         html: generateEmailTemplate(subject, content),

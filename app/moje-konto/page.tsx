@@ -33,6 +33,9 @@ export default function MojeKonto() {
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [selectedToKeep, setSelectedToKeep] = useState<string[]>([]);
 
+  const [facebookUrl, setFacebookUrl] = useState('');
+  const [instagramUrl, setInstagramUrl] = useState('');
+  const [youtubeUrl, setYoutubeUrl] = useState('');
   // --- EFEKTY POBIERAJĄCE DANE ---
   const fetchData = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -66,6 +69,9 @@ export default function MojeKonto() {
       setOrganization(profile.organization || '');
       setAvatarUrl(profile.avatar_url || '');
       setStoreAddress(profile.store_address || '');
+      setFacebookUrl(profile.facebook_url || '');
+      setInstagramUrl(profile.instagram_url || '');
+      setYoutubeUrl(profile.youtube_url || '');
       setWarnings(profile.warnings || 0);
       setIsBanned(profile.is_banned || false);
       setBanReason(profile.ban_reason || '');
@@ -105,7 +111,9 @@ export default function MojeKonto() {
     e.preventDefault();
     setUploading(true);
     const { error } = await supabase.from('profiles').update({
-      username, bio, organization, avatar_url: avatarUrl, store_address: storeAddress
+      username, bio, organization, avatar_url: avatarUrl, store_address: storeAddress, facebook_url: facebookUrl,
+      instagram_url: instagramUrl,
+      youtube_url: youtubeUrl
     }).eq('id', user.id);
     if (error) alert("Błąd zapisu: " + error.message);
     else alert("Profil zaktualizowany pomyślnie!");
@@ -222,11 +230,32 @@ export default function MojeKonto() {
           <div className="md:col-span-2 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label className="block text-xs font-black text-gray-500 mb-1">Nick</label><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
+              
               <div><label className="block text-xs font-black text-gray-500 mb-1">Hodowla</label><input type="text" value={organization} onChange={e => setOrganization(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
               <div className="md:col-span-2"><label className="block text-xs font-black text-gray-500 mb-1">Adres sklepu</label><input type="text" value={storeAddress} onChange={e => setStoreAddress(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
             </div>
             <div><label className="block text-xs font-black text-gray-500 mb-1">Bio</label><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 h-24 resize-none" /></div>
-            <button disabled={uploading} className="bg-black text-white px-8 py-3 rounded-xl font-bold hover:bg-gray-800 transition disabled:opacity-50">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
+          
+            <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
+              <h3 className="text-sm font-black text-gray-900 mb-4">Social Media (Opcjonalnie)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-blue-600">📘</span> Facebook</label>
+                  <input type="url" placeholder="https://facebook.com/..." value={facebookUrl} onChange={e => setFacebookUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-500 outline-none transition text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-pink-600">📸</span> Instagram</label>
+                  <input type="url" placeholder="https://instagram.com/..." value={instagramUrl} onChange={e => setInstagramUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-pink-500 outline-none transition text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-red-600">📺</span> YouTube</label>
+                  <input type="url" placeholder="https://youtube.com/..." value={youtubeUrl} onChange={e => setYoutubeUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-red-500 outline-none transition text-sm" />
+                </div>
+              </div>
+            </div>
+            {/* ---------------------------------- */}
+
+            <button disabled={uploading} className="bg-black text-white px-8 py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition shadow-md disabled:opacity-50 w-full md:w-auto mt-4">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
             <Link href={`/sklep/${user?.id}`} target="_blank" className="mt-4 block text-center border-2 border-green-600 text-green-600 px-8 py-3 rounded-xl font-bold hover:bg-green-50 transition">👁️ Zobacz sklep</Link>
           </div>
         </form>
