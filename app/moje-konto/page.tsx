@@ -38,11 +38,19 @@ export default function MojeKonto() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   // --- EFEKTY POBIERAJĄCE DANE ---
   const fetchData = async () => {
+    // 1. ZABEZPIECZENIE: Jeśli wracamy z Google (mamy token w URL), dajemy Supabase chwilę na jego odczytanie
+    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
+    
+    // 2. POPRAWIONA ŚCIEŻKA
     if (!user) {
-      router.push('/login'); // Zmieniono z /rejestracja na /login dla spójności
+      router.push('/rejestracja'); // Zmieniamy znikające /login na właściwe /rejestracja
       return;
     }
+    
     setUser(user);
 
     // 1. Pobieramy profil
