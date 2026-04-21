@@ -42,7 +42,13 @@ export default function MojeKonto() {
   const fetchData = async () => {
     setLoading(true);
 
-  // 1. Sprawdzamy sesję "na żywo"
+    // --- 🚨 RADAR NA BŁĘDY OAUTH ---
+    if (typeof window !== 'undefined' && window.location.hash.includes('error=')) {
+      alert("🚨 BŁĄD LOGOWANIA: " + decodeURIComponent(window.location.hash));
+    }
+    // --------------------------------
+    
+    // 1. Sprawdzamy sesję "na żywo"
     const { data: { session } } = await supabase.auth.getSession();
     let currentUser = session?.user || null; // <--- DODALIŚMY "|| null"
 
