@@ -33,44 +33,59 @@ export default function MojeKonto() {
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [selectedToKeep, setSelectedToKeep] = useState<string[]>([]);
 
+  // 5. Social Media
   const [facebookUrl, setFacebookUrl] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
-  // --- EFEKTY POBIERAJĄCE DANE ---
+
+  // --- GŁÓWNA FUNKCJA POBIERAJĄCA DANE ---
   const fetchData = async () => {
-    // 1. ZABEZPIECZENIE: Jeśli wracamy z Google (mamy token w URL), dajemy Supabase chwilę na jego odczytanie
-    if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    setLoading(true);
+
+    // 1. Sprawdzamy sesję "na żywo"
+    const { data: { session } } = await supabase.auth.getSession();
+    let currentUser = session?.user;
+
+    // 2. Jeśli nie ma sesji, sprawdzamy jeszcze raz getUser (na wszelki wypadek)
+    if (!currentUser) {
+      const { data: { user } } = await supabase.auth.getUser();
+      currentUser = user;
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    // 2. POPRAWIONA ŚCIEŻKA
-    if (!user) {
-      router.push('/rejestracja'); // Zmieniamy znikające /login na właściwe /rejestracja
+    // 3. REKURENCJA/CZEKANIE (BUFOR DLA OAUTH)
+    if (!currentUser && typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+       await new Promise(res => setTimeout(res, 1500)); // 1.5 sekundy bufora
+       const { data: { user: retryUser } } = await supabase.auth.getUser();
+       currentUser = retryUser;
+    }
+
+    if (!currentUser) {
+      // Dopiero gdy jesteśmy PEWNI, że po czekaniu usera nie ma - redirect do rejestracji
+      router.push('/rejestracja');
       return;
     }
-    
-    setUser(user);
 
-    // 1. Pobieramy profil
+    setUser(currentUser);
+
+    // 4. Pobieramy profil
     let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', user.id)
+      .eq('id', currentUser.id)
       .single();
 
-    // Jeśli profil nie istnieje, tworzymy go
+    // Jeśli profil nie istnieje, tworzymy go (np. świeże logowanie przez Google)
     if (profileError && profileError.code === 'PGRST116') {
       const { data: newProfile, error: insertError } = await supabase
         .from('profiles')
-        .insert([{ id: user.id, username: user.email }])
+        .insert([{ id: currentUser.id, username: currentUser.email?.split('@')[0] || 'Nowy Hodowca' }])
         .select()
         .single();
       
       if (!insertError) profile = newProfile;
     }
 
+    // 5. Ładujemy dane do formularzy
     if (profile) {
       setUsername(profile.username || '');
       setBio(profile.bio || '');
@@ -86,11 +101,11 @@ export default function MojeKonto() {
       
       const maxListings = profile.max_active_listings ?? 2;
       
-      // 2. Pobieramy ogłoszenia
+      // 6. Pobieramy ogłoszenia
       const { data: ads } = await supabase
         .from('listings')
         .select('*')
-        .eq('seller_id', user.id)
+        .eq('seller_id', currentUser.id)
         .order('created_at', { ascending: false });
 
       if (ads) {
@@ -102,16 +117,23 @@ export default function MojeKonto() {
         // --- DETEKTOR OVERFLOW (ZŁOTA KLATKA) ---
         if (activeAds.length > maxListings) {
           setShowDowngradeModal(true);
-          // Automatycznie pre-selekcjonujemy najnowsze ogłoszenia
           setSelectedToKeep(activeAds.slice(0, maxListings).map((l: any) => l.id));
         }
       }
     }
+    
     setLoading(false);
   };
 
   useEffect(() => {
+    // Nasłuchujemy zmian w autoryzacji (np. jak ktoś kliknie "Wyloguj" w innym oknie)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') fetchData();
+    });
+
     fetchData();
+
+    return () => subscription.unsubscribe();
   }, [router]);
 
   // --- FUNKCJE OBSŁUGI PROFILU ---
@@ -119,10 +141,16 @@ export default function MojeKonto() {
     e.preventDefault();
     setUploading(true);
     const { error } = await supabase.from('profiles').update({
-      username, bio, organization, avatar_url: avatarUrl, store_address: storeAddress, facebook_url: facebookUrl,
+      username, 
+      bio, 
+      organization, 
+      avatar_url: avatarUrl, 
+      store_address: storeAddress, 
+      facebook_url: facebookUrl,
       instagram_url: instagramUrl,
       youtube_url: youtubeUrl
     }).eq('id', user.id);
+    
     if (error) alert("Błąd zapisu: " + error.message);
     else alert("Profil zaktualizowany pomyślnie!");
     setUploading(false);
