@@ -74,18 +74,17 @@ export default function Logowanie() {
       options: { data: { username } }
     });
 
-    if (error) {
-      if (error.message.includes('already registered')) {
-        setErrorMsg('Ten e-mail jest już w bazie. Zaloguj się.');
-        setView('login');
+   if (error) {
+      // BRAMKARZ 3: Jeśli Supabase zgłasza błąd, że mail już istnieje
+      if (error.message.includes('already registered') || error.message.includes('User already registered')) {
+        setErrorMsg('email_taken'); // <-- ZMIANA: Ustawiamy tajny kod błędu
       } else {
-        setErrorMsg(error.message);
+        setErrorMsg(error.message); 
       }
     } else {
       setSuccessMsg(`Wysłaliśmy link aktywacyjny na adres ${email}. Sprawdź folder Spam!`);
       setView('success');
     }
-    
     setLoading(false);
   };
 
@@ -149,11 +148,23 @@ export default function Logowanie() {
           
           /* --- WIDOKI FORMULARZY (Z Twoim designem) --- */
           <div className="animate-in fade-in">
-            {errorMsg && (
-              <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 font-bold text-sm text-center border border-red-100">
+            {errorMsg === 'email_taken' ? (
+              <div className="bg-orange-50 text-orange-700 p-5 rounded-xl mb-6 text-sm text-center border border-orange-200 shadow-sm animate-in fade-in">
+                <span className="font-black block mb-2 text-base">Ten adres e-mail jest już zajęty! 🚨</span>
+                <p className="mb-3 font-medium opacity-90">Wygląda na to, że masz już u nas konto.</p>
+                <button 
+                  type="button"
+                  onClick={() => switchView('forgot')} 
+                  className="bg-orange-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-orange-700 transition shadow-sm w-full"
+                >
+                  Odzyskaj hasło do konta
+                </button>
+              </div>
+            ) : errorMsg ? (
+              <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 font-bold text-sm text-center border border-red-100 animate-in fade-in">
                 {errorMsg}
               </div>
-            )}
+            ) : null}
 
             <form onSubmit={view === 'register' ? handleSignUp : view === 'login' ? handleLogin : handleResetPassword} className="space-y-5">
               

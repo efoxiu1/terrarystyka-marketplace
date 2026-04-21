@@ -42,6 +42,7 @@ export default function Logowanie() {
   };
 
   // --- 2. REJESTRACJA (Z naszymi "bramkarzami") ---
+ // --- 2. REJESTRACJA (Z naszymi "bramkarzami") ---
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -59,7 +60,7 @@ export default function Logowanie() {
       .from('profiles')
       .select('username')
       .eq('username', username)
-      .single();
+      .maybeSingle();
 
     if (existingUser) {
       setErrorMsg('Ten nick jest już zajęty. Wymyśl inny!');
@@ -74,21 +75,45 @@ export default function Logowanie() {
       options: { data: { username } }
     });
 
+    // 🕵️‍♂️ BRAMKARZ 3: Zwykłe błędy (np. hasło za krótkie, zły format maila)
     if (error) {
-      if (error.message.includes('already registered')) {
-        setErrorMsg('Ten e-mail jest już w bazie. Zaloguj się.');
-        setView('login');
+      const isEmailTaken = error.message.toLowerCase().includes('already registered') || 
+                           error.message.toLowerCase().includes('user already exists');
+
+      if (isEmailTaken) {
+        setErrorMsg('email_taken'); 
       } else {
-        setErrorMsg(error.message);
+        setErrorMsg(error.message); 
       }
-    } else {
-      setSuccessMsg(`Wysłaliśmy link aktywacyjny na adres ${email}. Sprawdź folder Spam!`);
-      setView('success');
+      setLoading(false);
+      return;
     }
-    
+
+    // 🕵️‍♂️ BRAMKARZ 4: TAJNY HACK SUPABASE
+    // Jeśli Supabase udaje sukces (brak błędu), ale nie tworzy nowej tożsamości (identities = 0),
+    // to na 100% oznacza, że ten mail jest już zajęty w bazie.
+   if (data?.user && data.user.identities && data.user.identities.length === 0) {
+      
+      // 1. Dyskretnie wysyłamy sygnał do naszego nowego API, żeby poszedł ładny mail
+      await fetch('/api/auth-emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email })
+      });
+
+      // 2. POKAZUJEMY FAKE SUKCES (Użytkownik myśli, że wszystko poszło gładko)
+      setSuccessMsg(`Wysłaliśmy wiadomość na adres ${email}. Sprawdź skrzynkę i folder Spam!`);
+      setView('success');
+      setLoading(false);
+      return;
+    }
+
+    // Jeśli przeszliśmy wszystko – faktyczny, prawdziwy sukces!
+    setSuccessMsg(`Wysłaliśmy link aktywacyjny na adres ${email}. Sprawdź folder Spam!`);
+    setView('success');
     setLoading(false);
   };
-
+  
   // --- 3. RESET HASŁA ---
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,11 +174,35 @@ export default function Logowanie() {
           
           /* --- WIDOKI FORMULARZY (Z Twoim designem) --- */
           <div className="animate-in fade-in">
-            {errorMsg && (
-              <div className="bg-red-50 text-red-600 p-4 rounded-xl mb-6 font-bold text-sm text-center border border-red-100">
-                {errorMsg}
+            <div className="mb-6">
+                {errorMsg === 'email_taken' ? (
+                  // SPECJALNY BLOK DLA ZAJĘTEGO MAILA
+                  <div className="bg-orange-50 border border-orange-200 p-5 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-xl">🚨</span>
+                      <h3 className="font-black text-orange-800">Ten e-mail jest już zajęty!</h3>
+                    </div>
+                    <p className="text-orange-700 text-sm mb-4 font-medium">
+                      Wygląda na to, że masz już u nas konto. Nie musisz się rejestrować ponownie.
+                    </p>
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setErrorMsg(''); // Czyścimy błąd
+                        setView('forgot'); // Przełączamy na widok odzyskiwania
+                      }} 
+                      className="w-full bg-orange-600 text-white p-3 rounded-xl font-bold hover:bg-orange-700 transition shadow-sm"
+                    >
+                      Odzyskaj hasło do tego konta
+                    </button>
+                  </div>
+                ) : errorMsg ? (
+                  // STANDARDOWY CZERWONY BŁĄD
+                  <div className="bg-red-50 text-red-600 p-4 rounded-xl font-bold text-sm text-center border border-red-100 animate-in fade-in">
+                    {errorMsg}
+                  </div>
+                ) : null}
               </div>
-            )}
 
             <form onSubmit={view === 'register' ? handleSignUp : view === 'login' ? handleLogin : handleResetPassword} className="space-y-5">
               
@@ -161,7 +210,7 @@ export default function Logowanie() {
               {view === 'register' && (
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Twój Nick</label>
-                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" />
+                  <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full border bg-gray-50 p-4 rounded-xl focus:ring-2 focus:ring-green-500 outline-none transition text-lg" autoComplete="username" />
                 </div>
               )}
 
