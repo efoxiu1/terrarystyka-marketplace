@@ -32,7 +32,7 @@ export default function MojeKonto() {
   // 4. Modale (Pop-upy)
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [selectedToKeep, setSelectedToKeep] = useState<string[]>([]);
-  const [showVerificationModal, setShowVerificationModal] = useState(false); // <--- NOWY STAN WERYFIKACJI
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
 
   // 5. Social Media
   const [facebookUrl, setFacebookUrl] = useState('');
@@ -64,6 +64,7 @@ export default function MojeKonto() {
 
     setUser(currentUser);
 
+    // 1. POBIERAMY PROFIL (Bez limitów, same dane tekstowe)
     let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -93,8 +94,24 @@ export default function MojeKonto() {
       setIsBanned(profile.is_banned || false);
       setBanReason(profile.ban_reason || '');
       
-      const maxListings = profile.max_active_listings ?? 2;
+      // 🎓 2. NOWA LOGIKA: LICZENIE LIMITÓW Z TABELI PAKIETÓW
+      const BASE_LIMIT = 2;
+      const now = new Date().toISOString();
       
+      const { data: packages } = await supabase
+        .from('purchased_packages')
+        .select('slots_added')
+        .eq('user_id', currentUser.id)
+        .gt('expires_at', now); // Bierzemy tylko aktywne
+
+      let extraSlots = 0;
+      if (packages) {
+        extraSlots = packages.reduce((sum, pkg) => sum + pkg.slots_added, 0);
+      }
+      
+      const dynamicMaxListings = BASE_LIMIT + extraSlots;
+      
+      // 3. POBIERAMY OGŁOSZENIA
       const { data: ads } = await supabase
         .from('listings')
         .select('*')
@@ -105,11 +122,14 @@ export default function MojeKonto() {
         setMyAds(ads);
         
         const activeAds = ads.filter(ad => ad.status === 'active');
-        setLimitStats({ current: activeAds.length, max: maxListings });
+        
+        // Ustawiamy nowy, dynamicznie policzony limit
+        setLimitStats({ current: activeAds.length, max: dynamicMaxListings });
 
-        if (activeAds.length > maxListings) {
+        // Jeśli ktoś ma więcej aktywnych niż pozwala limit -> ODPALAMY ZŁOTĄ KLATKĘ
+        if (activeAds.length > dynamicMaxListings) {
           setShowDowngradeModal(true);
-          setSelectedToKeep(activeAds.slice(0, maxListings).map((l: any) => l.id));
+          setSelectedToKeep(activeAds.slice(0, dynamicMaxListings).map((l: any) => l.id));
         }
       }
     }
@@ -136,10 +156,8 @@ export default function MojeKonto() {
       bio, 
       organization, 
       avatar_url: avatarUrl, 
-      store_address: storeAddress, 
-      facebook_url: facebookUrl,
-      instagram_url: instagramUrl,
-      youtube_url: youtubeUrl
+      store_address: storeAddress 
+      // USUNIĘTO SOCIALE - Edytuje je tylko admin!
     }).eq('id', user.id);
     
     if (error) alert("Błąd zapisu: " + error.message);
@@ -258,69 +276,60 @@ export default function MojeKonto() {
             <div><label className="block text-xs font-black text-gray-500 mb-1">Bio</label><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 h-24 resize-none" /></div>
           
             <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
-              <div className="flex justify-between items-center mb-4">
-                <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
-  <div className="flex justify-between items-center mb-6">
-    <div>
-      <h3 className="text-sm font-black text-gray-900">Oficjalne Social Media</h3>
-      <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status weryfikacji tożsamości</p>
-    </div>
-    <button 
-      type="button" 
-      onClick={() => setShowVerificationModal(true)} 
-      className="text-xs bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl border border-blue-200 hover:bg-blue-600 hover:text-white transition flex items-center gap-2 shadow-sm"
-    >
-      🛡️ { (facebookUrl || instagramUrl || youtubeUrl) ? 'Aktualizuj weryfikację' : 'Zweryfikuj profil' }
-    </button>
-  </div>
-  
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-    {/* FACEBOOK DISPLAY */}
-    <div className={`p-4 rounded-2xl border-2 transition ${facebookUrl ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
-      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
-        <span className="text-blue-600">📘</span> Facebook
-      </p>
-      {facebookUrl ? (
-        <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-blue-700 hover:underline truncate block">
-          {facebookUrl.replace('https://', '')}
-        </a>
-      ) : (
-        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
-      )}
-    </div>
-
-    {/* INSTAGRAM DISPLAY */}
-    <div className={`p-4 rounded-2xl border-2 transition ${instagramUrl ? 'bg-pink-50 border-pink-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
-      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
-        <span className="text-pink-600">📸</span> Instagram
-      </p>
-      {instagramUrl ? (
-        <a href={instagramUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-pink-700 hover:underline truncate block">
-          {instagramUrl.replace('https://', '')}
-        </a>
-      ) : (
-        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
-      )}
-    </div>
-
-    {/* YOUTUBE DISPLAY */}
-    <div className={`p-4 rounded-2xl border-2 transition ${youtubeUrl ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
-      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
-        <span className="text-red-600">📺</span> YouTube
-      </p>
-      {youtubeUrl ? (
-        <a href={youtubeUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 hover:underline truncate block">
-          {youtubeUrl.replace('https://', '')}
-        </a>
-      ) : (
-        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
-      )}
-    </div>
-  </div>
-</div>
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-sm font-black text-gray-900">Oficjalne Social Media</h3>
+                  <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status weryfikacji tożsamości</p>
+                </div>
+                <button 
+                  type="button" 
+                  onClick={() => setShowVerificationModal(true)} 
+                  className="text-xs bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl border border-blue-200 hover:bg-blue-600 hover:text-white transition flex items-center gap-2 shadow-sm"
+                >
+                  🛡️ { (facebookUrl || instagramUrl || youtubeUrl) ? 'Aktualizuj weryfikację' : 'Zweryfikuj profil' }
+                </button>
               </div>
               
-  
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className={`p-4 rounded-2xl border-2 transition ${facebookUrl ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+                    <span className="text-blue-600">📘</span> Facebook
+                  </p>
+                  {facebookUrl ? (
+                    <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-blue-700 hover:underline truncate block">
+                      {facebookUrl.replace('https://', '')}
+                    </a>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+                  )}
+                </div>
+
+                <div className={`p-4 rounded-2xl border-2 transition ${instagramUrl ? 'bg-pink-50 border-pink-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+                    <span className="text-pink-600">📸</span> Instagram
+                  </p>
+                  {instagramUrl ? (
+                    <a href={instagramUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-pink-700 hover:underline truncate block">
+                      {instagramUrl.replace('https://', '')}
+                    </a>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+                  )}
+                </div>
+
+                <div className={`p-4 rounded-2xl border-2 transition ${youtubeUrl ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+                  <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+                    <span className="text-red-600">📺</span> YouTube
+                  </p>
+                  {youtubeUrl ? (
+                    <a href={youtubeUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 hover:underline truncate block">
+                      {youtubeUrl.replace('https://', '')}
+                    </a>
+                  ) : (
+                    <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+                  )}
+                </div>
+              </div>
             </div>
 
             <button disabled={uploading} className="bg-black text-white px-8 py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition shadow-md disabled:opacity-50 w-full md:w-auto mt-4">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
