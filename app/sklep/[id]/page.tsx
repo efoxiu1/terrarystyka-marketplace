@@ -37,7 +37,7 @@ export default function StronaSklepu() {
       }
 
       const { data: profileData } = await supabase.from('profiles').select('*').eq('id', sellerId).single();
-      const { data: listingsData } = await supabase.from('listings').select('*').eq('seller_id', sellerId).order('created_at', { ascending: false });
+      const { data: listingsData } = await supabase.from('listings').select('*').eq('seller_id', sellerId).eq('status', 'active').order('created_at', { ascending: false });
       const { data: reviewsData } = await supabase
         .from('reviews')
         .select('*, author:profiles!reviews_author_id_fkey(username, avatar_url)')
