@@ -275,7 +275,7 @@ export default function Cennik() {
 
               <ul className="text-left space-y-4 mb-8 flex-1 font-medium text-gray-600">
                 <li className="flex gap-2"><span>✅</span> Do {plan.listing_limit} aktywnych ogłoszeń</li>
-                <li className="flex gap-2"><span>✅</span></li>
+                <li className="flex gap-2"><span>✅</span> Odznaka zweryfikowanego sprzedawcy </li>
                 <li className="flex gap-2">
                   <span>{isSubscriptionMode ? '🔄' : '⏱️'}</span> 
                   {isSubscriptionMode ? 'Automatyczne odnawianie co 30 dni' : 'Ważne przez 30 dni'}

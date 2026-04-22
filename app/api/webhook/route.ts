@@ -58,7 +58,7 @@ export async function POST(req: Request) {
         if (order && order.update_type) {
             
             // 1. Ustalamy czas trwania pakietu (pojedyncze 14 dni, reszta 30 dni)
-            const daysValid = order.package_id === 'single' ? 14 : 30;
+            const daysValid = 30;
             const expirationDate = new Date();
             expirationDate.setDate(expirationDate.getDate() + daysValid);
             
