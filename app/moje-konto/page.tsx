@@ -29,9 +29,10 @@ export default function MojeKonto() {
   const [myAds, setMyAds] = useState<any[]>([]);
   const [limitStats, setLimitStats] = useState({ current: 0, max: 2 });
   
-  // 4. Modal "Złotej Klatki" (Wygasły pakiet)
+  // 4. Modale (Pop-upy)
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [selectedToKeep, setSelectedToKeep] = useState<string[]>([]);
+  const [showVerificationModal, setShowVerificationModal] = useState(false); // <--- NOWY STAN WERYFIKACJI
 
   // 5. Social Media
   const [facebookUrl, setFacebookUrl] = useState('');
@@ -42,45 +43,33 @@ export default function MojeKonto() {
   const fetchData = async () => {
     setLoading(true);
 
-    // --- 🚨 RADAR NA BŁĘDY OAUTH ---
-    if (typeof window !== 'undefined' && window.location.hash.includes('error=')) {
-      alert("🚨 BŁĄD LOGOWANIA: " + decodeURIComponent(window.location.hash));
-    }
-    // --------------------------------
-    
-    // 1. Sprawdzamy sesję "na żywo"
     const { data: { session } } = await supabase.auth.getSession();
-    let currentUser = session?.user || null; // <--- DODALIŚMY "|| null"
+    let currentUser = session?.user || null;
 
-    // 2. Jeśli nie ma sesji, sprawdzamy jeszcze raz getUser (na wszelki wypadek)
     if (!currentUser) {
       const { data: { user } } = await supabase.auth.getUser();
       currentUser = user;
     }
 
-    // 3. REKURENCJA/CZEKANIE (BUFOR DLA OAUTH)
     if (!currentUser && typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-       await new Promise(res => setTimeout(res, 1500)); // 1.5 sekundy bufora
+       await new Promise(res => setTimeout(res, 1500)); 
        const { data: { user: retryUser } } = await supabase.auth.getUser();
        currentUser = retryUser;
     }
 
     if (!currentUser) {
-      // Dopiero gdy jesteśmy PEWNI, że po czekaniu usera nie ma - redirect do rejestracji
       router.push('/rejestracja');
       return;
     }
 
     setUser(currentUser);
 
-    // 4. Pobieramy profil
     let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', currentUser.id)
       .single();
 
-    // Jeśli profil nie istnieje, tworzymy go (np. świeże logowanie przez Google)
     if (profileError && profileError.code === 'PGRST116') {
       const { data: newProfile, error: insertError } = await supabase
         .from('profiles')
@@ -91,7 +80,6 @@ export default function MojeKonto() {
       if (!insertError) profile = newProfile;
     }
 
-    // 5. Ładujemy dane do formularzy
     if (profile) {
       setUsername(profile.username || '');
       setBio(profile.bio || '');
@@ -107,7 +95,6 @@ export default function MojeKonto() {
       
       const maxListings = profile.max_active_listings ?? 2;
       
-      // 6. Pobieramy ogłoszenia
       const { data: ads } = await supabase
         .from('listings')
         .select('*')
@@ -120,7 +107,6 @@ export default function MojeKonto() {
         const activeAds = ads.filter(ad => ad.status === 'active');
         setLimitStats({ current: activeAds.length, max: maxListings });
 
-        // --- DETEKTOR OVERFLOW (ZŁOTA KLATKA) ---
         if (activeAds.length > maxListings) {
           setShowDowngradeModal(true);
           setSelectedToKeep(activeAds.slice(0, maxListings).map((l: any) => l.id));
@@ -132,7 +118,6 @@ export default function MojeKonto() {
   };
 
   useEffect(() => {
-    // Nasłuchujemy zmian w autoryzacji (np. jak ktoś kliknie "Wyloguj" w innym oknie)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') fetchData();
     });
@@ -199,7 +184,7 @@ export default function MojeKonto() {
     fetchData(); 
   };
 
-  // --- FUNKCJE ZŁOTEJ KLATKI (DOWNGRADE) ---
+  // --- FUNKCJE ZŁOTEJ KLATKI ---
   const toggleKeepListing = (id: string) => {
     if (selectedToKeep.includes(id)) {
       setSelectedToKeep(selectedToKeep.filter(item => item !== id));
@@ -224,13 +209,10 @@ export default function MojeKonto() {
         .update({ status: 'inactive' })
         .in('id', toDeactivate);
 
-      if (error) {
-        alert('Błąd podczas aktualizacji: ' + error.message);
-        return;
-      }
+      if (error) return alert('Błąd: ' + error.message);
     }
     setShowDowngradeModal(false);
-    fetchData(); // Odświeżamy dane z bazy po dezaktywacji
+    fetchData(); 
   };
 
   if (loading) return <div className="p-20 text-center font-bold text-gray-400">Ładowanie Twojego panelu...</div>;
@@ -238,7 +220,6 @@ export default function MojeKonto() {
   return (
     <main className="p-6 md:p-10 max-w-5xl mx-auto mb-20">
       
-      {/* --- SEKCJA KARY I BANY --- */}
       {isBanned && (
         <div className="bg-red-600 text-white p-6 rounded-3xl mb-8 shadow-lg">
           <h2 className="text-2xl font-black mb-2 flex items-center gap-2"><span>🔨</span> Twoje konto zostało zawieszone!</h2>
@@ -259,7 +240,6 @@ export default function MojeKonto() {
         </div>
       )}
       
-      {/* --- SEKCJA PROFILU --- */}
       <section className="bg-white rounded-3xl shadow-sm border p-8 mb-12">
         <h2 className="text-2xl font-black mb-6 flex items-center gap-2"><span>👤</span> Twój Profil Publiczny</h2>
         <form onSubmit={handleUpdateProfile} className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -272,30 +252,76 @@ export default function MojeKonto() {
           <div className="md:col-span-2 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label className="block text-xs font-black text-gray-500 mb-1">Nick</label><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
-              
               <div><label className="block text-xs font-black text-gray-500 mb-1">Hodowla</label><input type="text" value={organization} onChange={e => setOrganization(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
               <div className="md:col-span-2"><label className="block text-xs font-black text-gray-500 mb-1">Adres sklepu</label><input type="text" value={storeAddress} onChange={e => setStoreAddress(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
             </div>
             <div><label className="block text-xs font-black text-gray-500 mb-1">Bio</label><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 h-24 resize-none" /></div>
           
             <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
-              <h3 className="text-sm font-black text-gray-900 mb-4">Social Media (Opcjonalnie)</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-blue-600">📘</span> Facebook</label>
-                  <input type="url" placeholder="https://facebook.com/..." value={facebookUrl} onChange={e => setFacebookUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-blue-500 outline-none transition text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-pink-600">📸</span> Instagram</label>
-                  <input type="url" placeholder="https://instagram.com/..." value={instagramUrl} onChange={e => setInstagramUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-pink-500 outline-none transition text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center gap-1"><span className="text-red-600">📺</span> YouTube</label>
-                  <input type="url" placeholder="https://youtube.com/..." value={youtubeUrl} onChange={e => setYoutubeUrl(e.target.value)} className="w-full border border-gray-200 p-3 rounded-xl bg-gray-50 focus:border-red-500 outline-none transition text-sm" />
-                </div>
+              <div className="flex justify-between items-center mb-4">
+                <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
+  <div className="flex justify-between items-center mb-6">
+    <div>
+      <h3 className="text-sm font-black text-gray-900">Oficjalne Social Media</h3>
+      <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status weryfikacji tożsamości</p>
+    </div>
+    <button 
+      type="button" 
+      onClick={() => setShowVerificationModal(true)} 
+      className="text-xs bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl border border-blue-200 hover:bg-blue-600 hover:text-white transition flex items-center gap-2 shadow-sm"
+    >
+      🛡️ { (facebookUrl || instagramUrl || youtubeUrl) ? 'Aktualizuj weryfikację' : 'Zweryfikuj profil' }
+    </button>
+  </div>
+  
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    {/* FACEBOOK DISPLAY */}
+    <div className={`p-4 rounded-2xl border-2 transition ${facebookUrl ? 'bg-blue-50 border-blue-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+        <span className="text-blue-600">📘</span> Facebook
+      </p>
+      {facebookUrl ? (
+        <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-blue-700 hover:underline truncate block">
+          {facebookUrl.replace('https://', '')}
+        </a>
+      ) : (
+        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+      )}
+    </div>
+
+    {/* INSTAGRAM DISPLAY */}
+    <div className={`p-4 rounded-2xl border-2 transition ${instagramUrl ? 'bg-pink-50 border-pink-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+        <span className="text-pink-600">📸</span> Instagram
+      </p>
+      {instagramUrl ? (
+        <a href={instagramUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-pink-700 hover:underline truncate block">
+          {instagramUrl.replace('https://', '')}
+        </a>
+      ) : (
+        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+      )}
+    </div>
+
+    {/* YOUTUBE DISPLAY */}
+    <div className={`p-4 rounded-2xl border-2 transition ${youtubeUrl ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-dashed border-gray-200'}`}>
+      <p className="text-[10px] font-black text-gray-400 uppercase mb-2 flex items-center gap-1">
+        <span className="text-red-600">📺</span> YouTube
+      </p>
+      {youtubeUrl ? (
+        <a href={youtubeUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 hover:underline truncate block">
+          {youtubeUrl.replace('https://', '')}
+        </a>
+      ) : (
+        <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
+      )}
+    </div>
+  </div>
+</div>
               </div>
+              
+  
             </div>
-            {/* ---------------------------------- */}
 
             <button disabled={uploading} className="bg-black text-white px-8 py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition shadow-md disabled:opacity-50 w-full md:w-auto mt-4">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
             <Link href={`/sklep/${user?.id}`} target="_blank" className="mt-4 block text-center border-2 border-green-600 text-green-600 px-8 py-3 rounded-xl font-bold hover:bg-green-50 transition">👁️ Zobacz sklep</Link>
@@ -303,11 +329,9 @@ export default function MojeKonto() {
         </form>
       </section>
 
-      {/* --- SEKCJA OGŁOSZEŃ --- */}
       <section>
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
           <h2 className="text-2xl font-black">📦 Twoje Ogłoszenia ({myAds.length})</h2>
-          
           <div className="bg-black text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-3 w-full md:w-auto justify-center">
             <span className="font-bold text-sm">Zużycie pakietu:</span>
             <span className={`text-xl font-black ${limitStats.current >= limitStats.max ? 'text-red-400' : 'text-green-400'}`}>
@@ -332,32 +356,15 @@ export default function MojeKonto() {
               const isRejected = ad.status === 'rejected';
               
               return (
-                <div 
-                  key={ad.id} 
-                  className={`border rounded-xl p-4 flex flex-col md:flex-row items-center gap-6 transition-all duration-300 ${
-                    isActive ? 'bg-white border-green-200 shadow-sm hover:shadow-md' : 
-                    isPending ? 'bg-yellow-50 border-yellow-200 opacity-80' : 
-                    isRejected ? 'bg-red-50 border-red-200 opacity-60' :
-                    'bg-gray-100 border-gray-300 opacity-70 grayscale hover:grayscale-0'
-                  }`}
-                >
+                <div key={ad.id} className={`border rounded-xl p-4 flex flex-col md:flex-row items-center gap-6 transition-all duration-300 ${isActive ? 'bg-white border-green-200 shadow-sm hover:shadow-md' : isPending ? 'bg-yellow-50 border-yellow-200 opacity-80' : isRejected ? 'bg-red-50 border-red-200 opacity-60' : 'bg-gray-100 border-gray-300 opacity-70 grayscale hover:grayscale-0'}`}>
                   <div className="w-24 h-24 shrink-0 bg-gray-200 rounded-lg overflow-hidden border relative">
-                    {ad.image_url ? (
-                      <img src={ad.image_url} alt="Mini" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs font-bold">Brak foto</div>
-                    )}
-                    <div className="absolute top-1 right-1 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
-                      {ad.quantity || 1} szt.
-                    </div>
+                    {ad.image_url ? <img src={ad.image_url} alt="Mini" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs font-bold">Brak foto</div>}
+                    <div className="absolute top-1 right-1 bg-black/80 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">{ad.quantity || 1} szt.</div>
                   </div>
 
                   <div className="flex-1 w-full text-center md:text-left min-w-0">
-                    <Link href={`/ogloszenie/${ad.id}`} className="hover:text-green-600 transition block">
-                      <h2 className="text-lg md:text-xl font-bold text-gray-900 truncate" title={ad.title}>{ad.title}</h2>
-                    </Link>
+                    <Link href={`/ogloszenie/${ad.id}`} className="hover:text-green-600 transition block"><h2 className="text-lg md:text-xl font-bold text-gray-900 truncate" title={ad.title}>{ad.title}</h2></Link>
                     <p className="text-green-700 font-black mt-1">{ad.price} PLN</p>
-                    
                     <div className="mt-2 flex flex-wrap gap-2 justify-center md:justify-start">
                       {isActive && <span className="bg-green-100 text-green-800 border border-green-300 text-[10px] uppercase font-black px-2 py-1 rounded">✅ Aktywne</span>}
                       {isPending && <span className="bg-yellow-100 text-yellow-800 border border-yellow-300 text-[10px] uppercase font-black px-2 py-1 rounded">⏳ W weryfikacji</span>}
@@ -368,22 +375,12 @@ export default function MojeKonto() {
 
                   <div className="flex flex-row md:flex-col w-full md:w-auto gap-2 shrink-0">
                     {!isPending && !isRejected && (
-                      <button 
-                        onClick={() => toggleListingStatus(ad)}
-                        className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${
-                          isActive ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-green-500 text-white hover:bg-green-600 shadow-md'
-                        }`}
-                      >
+                      <button onClick={() => toggleListingStatus(ad)} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${isActive ? 'bg-gray-200 text-gray-700 hover:bg-gray-300' : 'bg-green-500 text-white hover:bg-green-600 shadow-md'}`}>
                         {isActive ? 'Dezaktywuj' : '🔌 Włącz'}
                       </button>
                     )}
-                    
-                    <Link href={`/edytuj-ogloszenie/${ad.id}`} className="flex-1 bg-blue-50 text-blue-600 border border-blue-200 px-4 py-2 text-sm font-bold rounded-lg hover:bg-blue-600 hover:text-white transition text-center">
-                      ✏️ Edytuj
-                    </Link>
-                    <button onClick={() => handleDelete(ad.id)} className="flex-1 bg-red-50 text-red-600 border border-red-200 px-4 py-2 text-sm font-bold rounded-lg hover:bg-red-600 hover:text-white transition">
-                      🗑️ Usuń
-                    </button>
+                    <Link href={`/edytuj-ogloszenie/${ad.id}`} className="flex-1 bg-blue-50 text-blue-600 border border-blue-200 px-4 py-2 text-sm font-bold rounded-lg hover:bg-blue-600 hover:text-white transition text-center">✏️ Edytuj</Link>
+                    <button onClick={() => handleDelete(ad.id)} className="flex-1 bg-red-50 text-red-600 border border-red-200 px-4 py-2 text-sm font-bold rounded-lg hover:bg-red-600 hover:text-white transition">🗑️ Usuń</button>
                   </div>
                 </div>
               );
@@ -392,7 +389,46 @@ export default function MojeKonto() {
         )}
       </section>
 
-      {/* --- MODAL (POP-UP) PRZEKROCZENIA LIMITU --- */}
+      {/* --- MODAL WERYFIKACJI SOCIAL MEDIA --- */}
+      {showVerificationModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white max-w-lg w-full rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95">
+            <div className="bg-blue-600 p-6 text-center relative">
+              <div className="absolute top-2 right-4 text-6xl opacity-20">🛡️</div>
+              <h2 className="text-2xl font-black text-white relative z-10">Weryfikacja Hodowcy</h2>
+            </div>
+            
+            <div className="p-8">
+              <p className="text-gray-700 mb-6 font-medium text-center">
+                Chcesz udowodnić kupującym, że Twoje social media są autentyczne? Pozytywna weryfikacja znacząco <strong className="text-blue-600">zwiększy zaufanie</strong> do Twojej hodowli i <strong className="text-blue-600">podniesie pozycjonowanie</strong> Twoich ogłoszeń w algorytmie!
+              </p>
+              
+              <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 mb-8">
+                <h3 className="font-black text-blue-900 mb-4 uppercase text-xs tracking-widest">Instrukcja krok po kroku:</h3>
+                <ol className="list-decimal list-outside ml-4 text-sm text-blue-800 space-y-4 font-medium">
+                  <li>Dodaj relację (Story) na swoim Facebooku lub Instagramie.</li>
+                  <li>Oznacz nasz oficjalny profil: <strong className="bg-blue-200 px-2 py-0.5 rounded text-blue-900">@GieldaEgzotyki</strong>.</li>
+                  <li>Umieść na relacji czytelny tekst: <br/><br/>
+                    <div className="bg-white p-3 rounded-lg border border-blue-200 font-bold text-gray-900 text-center shadow-sm">
+                      "Znajdziecie moje ogłoszenia na giełdzie pod nickiem: <span className="text-blue-600">{username || 'Twój Nick'}</span>"
+                    </div>
+                  </li>
+                  <li>To tyle! Nasza administracja wyłapie Twoje oznaczenie i ręcznie zaktualizuje Twój profil w przeciągu 24 godzin.</li>
+                </ol>
+              </div>
+
+              <button 
+                onClick={() => setShowVerificationModal(false)} 
+                className="w-full bg-gray-900 text-white font-black py-4 rounded-xl hover:bg-gray-800 transition shadow-lg"
+              >
+                Jasne, biorę się za weryfikację!
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL ZŁOTEJ KLATKI --- */}
       {showDowngradeModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white max-w-2xl w-full rounded-3xl overflow-hidden shadow-2xl animate-in zoom-in-95">
@@ -420,24 +456,12 @@ export default function MojeKonto() {
                   const isMaxedOut = selectedToKeep.length >= limitStats.max && !isSelected;
 
                   return (
-                    <div 
-                      key={listing.id}
-                      onClick={() => !isMaxedOut && toggleKeepListing(listing.id)}
-                      className={`flex items-center justify-between p-4 border-2 rounded-2xl cursor-pointer transition-all ${
-                        isSelected 
-                          ? 'border-green-500 bg-green-50' 
-                          : isMaxedOut 
-                            ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' 
-                            : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
+                    <div key={listing.id} onClick={() => !isMaxedOut && toggleKeepListing(listing.id)} className={`flex items-center justify-between p-4 border-2 rounded-2xl cursor-pointer transition-all ${isSelected ? 'border-green-500 bg-green-50' : isMaxedOut ? 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed' : 'border-gray-200 hover:border-gray-300'}`}>
                       <div>
                         <p className={`font-bold ${isSelected ? 'text-green-900' : 'text-gray-900'}`}>{listing.title}</p>
                         <p className="text-sm text-gray-500">{listing.price} PLN</p>
                       </div>
-                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                        isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300'
-                      }`}>
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-green-500 bg-green-500 text-white' : 'border-gray-300'}`}>
                         {isSelected && '✓'}
                       </div>
                     </div>
@@ -446,17 +470,10 @@ export default function MojeKonto() {
               </div>
 
               <div className="flex flex-col md:flex-row gap-4">
-                <button 
-                  onClick={() => router.push('/cennik')}
-                  className="flex-1 bg-amber-500 text-black font-black py-4 rounded-xl hover:bg-amber-600 transition shadow-lg flex items-center justify-center gap-2"
-                >
+                <button onClick={() => router.push('/cennik')} className="flex-1 bg-amber-500 text-black font-black py-4 rounded-xl hover:bg-amber-600 transition shadow-lg flex items-center justify-center gap-2">
                   <span>🚀</span> Zwiększ limit (Cennik)
                 </button>
-                <button 
-                  onClick={handleDowngradeSave}
-                  disabled={selectedToKeep.length === 0}
-                  className="flex-1 bg-gray-900 text-white font-bold py-4 rounded-xl hover:bg-gray-800 transition disabled:opacity-50"
-                >
+                <button onClick={handleDowngradeSave} disabled={selectedToKeep.length === 0} className="flex-1 bg-gray-900 text-white font-bold py-4 rounded-xl hover:bg-gray-800 transition disabled:opacity-50">
                   Zapisz i dezaktywuj resztę
                 </button>
               </div>

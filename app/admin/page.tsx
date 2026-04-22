@@ -125,6 +125,32 @@ setPendingListings(pendingData || []);
       setStats(prev => ({ ...prev, reports: Math.max(0, prev.reports - 1) }));
     }
   };
+  // --- FUNKCJA ADMINA: ZAPISYWANIE SOCIALI I WERYFIKACJI ---
+  const handleSaveUserDetails = async () => {
+    if (!selectedUser) return;
+    
+    // Zakładam, że masz gdzieś setLoading, jeśli nie, możesz to usunąć
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        facebook_url: selectedUser.facebook_url,
+        instagram_url: selectedUser.instagram_url,
+        youtube_url: selectedUser.youtube_url,
+        is_verified_seller: selectedUser.is_verified_seller // Zmieniamy status!
+      })
+      .eq('id', selectedUser.id);
+
+    if (error) {
+      alert("Błąd zapisu: " + error.message);
+    } else {
+      alert("Dane użytkownika zaktualizowane!");
+      
+      // Odświeżamy listę w tle (jeśli masz funkcję fetchUsers, wywołaj ją tu)
+      // fetchUsers(); 
+      
+      setSelectedUser(null); // Zamykamy okienko
+    }
+  };
 const handleApproveSpecies = async (listing: any) => {
     if (!editPolishName) return alert('Polska nazwa jest wymagana!');
     if (!latinName) return alert('Musisz podać nazwę łacińską!');
@@ -883,40 +909,136 @@ const handleAddCategory = async (e: React.FormEvent) => {
 )}
 
       {/* MODAL: SZCZEGÓŁY UŻYTKOWNIKA */}
-      {selectedUser && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="bg-gray-900 p-6 text-white flex justify-between items-center">
-              <h2 className="text-xl font-black">Przegląd konta</h2>
-              <button onClick={() => setSelectedUser(null)} className="text-2xl hover:scale-125 transition">✕</button>
-            </div>
-            <div className="p-8">
-              <div className="flex flex-col md:flex-row gap-8 items-center md:items-start mb-8">
-                <div className="w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-gray-100 overflow-hidden border-4 border-gray-50 shrink-0">
-                  {selectedUser.avatar_url ? <img src={selectedUser.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-5xl">👤</div>}
-                </div>
-                <div className="flex-1 text-center md:text-left">
-                  <h3 className="text-3xl font-black text-gray-900 mb-1">{selectedUser.username || 'Brak nazwy'}</h3>
-                  <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-4">
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${selectedUser.is_admin ? 'bg-purple-100 text-purple-700 border-purple-200 border' : 'bg-gray-100 text-gray-500'}`}>{selectedUser.is_admin ? '🛡️ Administrator' : 'Użytkownik'}</span>
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${selectedUser.is_banned ? 'bg-red-600 text-white' : 'bg-green-100 text-green-700 border border-green-200'}`}>{selectedUser.is_banned ? '🔨 Zbanowany' : 'Konto aktywne'}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-6">
-                <div className="bg-gray-50 p-4 rounded-2xl"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">ID</p><p className="text-xs font-mono break-all">{selectedUser.id}</p></div>
-                <div className="bg-gray-50 p-4 rounded-2xl"><p className="text-[10px] font-black text-gray-400 uppercase mb-1">Ostrzeżenia</p><p className="text-sm font-black text-orange-600">{selectedUser.warnings || 0}</p></div>
-              </div>
-              <div className="mt-8 flex flex-col md:flex-row gap-3">
-                <Link href={`/sklep/${selectedUser.id}`} target="_blank" className="flex-1 bg-black text-white text-center py-4 rounded-2xl font-black hover:bg-gray-800 transition shadow-lg">Otwórz widok sklepu ➔</Link>
-                <button onClick={() => toggleBanStatus(selectedUser.id, selectedUser.is_banned)} className={`flex-1 border-2 py-4 rounded-2xl font-black transition ${selectedUser.is_banned ? 'border-green-600 text-green-600 hover:bg-green-50' : 'border-red-600 text-red-600 hover:bg-red-50'}`}>
-                  {selectedUser.is_banned ? 'Odblokuj konto' : '🔨 Zbanuj użytkownika'}
-                </button>
-              </div>
+    {selectedUser && (
+  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+    <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+      
+      {/* --- NAGŁÓWEK --- */}
+      <div className="bg-gray-900 p-6 text-white flex justify-between items-center">
+        <h2 className="text-xl font-black">Zarządzanie kontem</h2>
+        <button onClick={() => setSelectedUser(null)} className="text-2xl hover:scale-125 transition">✕</button>
+      </div>
+
+      <div className="p-8 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        
+        {/* --- PROFIL I STATUSY --- */}
+        <div className="flex flex-col md:flex-row gap-8 items-center md:items-start mb-8">
+          <div className="w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-gray-100 overflow-hidden border-4 border-gray-50 shrink-0 shadow-sm">
+            {selectedUser.avatar_url ? (
+              <img src={selectedUser.avatar_url} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-5xl">👤</div>
+            )}
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h3 className="text-3xl font-black text-gray-900 mb-1">{selectedUser.username || 'Brak nazwy'}</h3>
+            <div className="flex flex-wrap justify-center md:justify-start gap-2 mb-4">
+              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${selectedUser.is_admin ? 'bg-purple-100 text-purple-700 border-purple-200 border' : 'bg-gray-100 text-gray-500'}`}>
+                {selectedUser.is_admin ? '🛡️ Administrator' : 'Użytkownik'}
+              </span>
+              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${selectedUser.is_banned ? 'bg-red-600 text-white' : 'bg-green-100 text-green-700 border border-green-200'}`}>
+                {selectedUser.is_banned ? '🔨 Zbanowany' : 'Konto aktywne'}
+              </span>
+              {selectedUser.is_verified_seller && (
+                <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase bg-blue-100 text-blue-700 border border-blue-200">✅ Zweryfikowany</span>
+              )}
             </div>
           </div>
         </div>
-      )}
+
+        {/* --- DANE SYSTEMOWE --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-6 mb-8">
+          <div className="bg-gray-50 p-4 rounded-2xl">
+            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">ID Użytkownika</p>
+            <p className="text-xs font-mono break-all text-gray-600">{selectedUser.id}</p>
+          </div>
+          <div className="bg-gray-50 p-4 rounded-2xl">
+            <p className="text-[10px] font-black text-gray-400 uppercase mb-1">Ostrzeżenia (Warnings)</p>
+            <p className="text-sm font-black text-orange-600">{selectedUser.warnings || 0}</p>
+          </div>
+        </div>
+
+        {/* --- EDYCJA SOCIAL MEDIA & WERYFIKACJA --- */}
+        <div className="space-y-4 border-t pt-6">
+          <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">Ustawienia Oficjalne</h4>
+          
+          <div className="bg-blue-50 p-5 rounded-2xl border border-blue-100 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-blue-900">Status Zweryfikowanego Hodowcy</p>
+              <p className="text-xs text-blue-700">Nadaje oficjalną odznakę ✅ na profilu</p>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={selectedUser.is_verified_seller || false}
+              onChange={(e) => setSelectedUser({...selectedUser, is_verified_seller: e.target.checked})}
+              className="w-6 h-6 accent-blue-600 cursor-pointer"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Facebook URL</label>
+              <input 
+                type="text" 
+                value={selectedUser.facebook_url || ''} 
+                onChange={(e) => setSelectedUser({...selectedUser, facebook_url: e.target.value})}
+                className="w-full border p-3 rounded-xl bg-gray-50 text-sm focus:ring-2 focus:ring-black outline-none"
+                placeholder="Link do FB"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Instagram URL</label>
+              <input 
+                type="text" 
+                value={selectedUser.instagram_url || ''} 
+                onChange={(e) => setSelectedUser({...selectedUser, instagram_url: e.target.value})}
+                className="w-full border p-3 rounded-xl bg-gray-50 text-sm focus:ring-2 focus:ring-black outline-none"
+                placeholder="Link do IG"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">YouTube URL</label>
+              <input 
+                type="text" 
+                value={selectedUser.youtube_url || ''} 
+                onChange={(e) => setSelectedUser({...selectedUser, youtube_url: e.target.value})}
+                className="w-full border p-3 rounded-xl bg-gray-50 text-sm focus:ring-2 focus:ring-black outline-none"
+                placeholder="Link do YT"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* --- PRZYCISKI AKCJI --- */}
+        <div className="mt-8 flex flex-col gap-3">
+          <button 
+            onClick={handleSaveUserDetails}
+            className="w-full bg-green-600 text-white py-4 rounded-2xl font-black hover:bg-green-700 transition shadow-lg"
+          >
+            Zapisz zmiany w profilu
+          </button>
+          
+          <div className="flex flex-col md:flex-row gap-3">
+            <Link 
+              href={`/sklep/${selectedUser.id}`} 
+              target="_blank" 
+              className="flex-1 bg-black text-white text-center py-4 rounded-2xl font-black hover:bg-gray-800 transition"
+            >
+              Otwórz sklep ➔
+            </Link>
+            <button 
+              onClick={() => toggleBanStatus(selectedUser.id, selectedUser.is_banned)} 
+              className={`flex-1 border-2 py-4 rounded-2xl font-black transition ${selectedUser.is_banned ? 'border-green-600 text-green-600 hover:bg-green-50' : 'border-red-600 text-red-600 hover:bg-red-50'}`}
+            >
+              {selectedUser.is_banned ? '🔓 Odblokuj konto' : '🔨 Zbanuj użytkownika'}
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+)}
     </main>
   );
 }
