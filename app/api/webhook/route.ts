@@ -56,37 +56,43 @@ export async function POST(req: Request) {
 
         // B. SCENARIUSZ 1: KLIENT KUPIŁ PAKIET LIMITÓW (Ma zdefiniowany update_type)
         if (order && order.update_type) {
-            let finalLimit = order.new_limit || 0;
-            const profileUpdates: any = {}; 
             
-            if (order.update_type === 'add') {
-                // Pobieramy obecny limit użytkownika
-                const { data: profile } = await supabaseAdmin
-                  .from('profiles')
-                  .select('max_active_listings')
-                  .eq('id', order.user_id)
-                  .single();
-                  
-                finalLimit = (profile?.max_active_listings || 2) + order.new_limit; 
-            }
+            // 1. Ustalamy czas trwania pakietu (pojedyncze 14 dni, reszta 30 dni)
+            const daysValid = order.package_id === 'single' ? 14 : 30;
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + daysValid);
             
-            // Wrzucamy do paczki nowy limit
-            profileUpdates.max_active_listings = finalLimit;
+            const slotsToAdd = order.new_limit || 0;
+            const packageName = order.package_id === 'single' ? 'Pojedyncze miejsce' : `Pakiet: ${order.package_id}`;
 
-            // Jeśli kupił pakiet o ID 'pro', dorzucamy do paczki status zweryfikowanego sprzedawcy!
-            profileUpdates.is_verified_seller = true;
-        
+            // 2. Wrzucamy wpis do NASZEJ NOWEJ TABELI (purchased_packages)
+            const { error: packageError } = await supabaseAdmin
+              .from('purchased_packages')
+              .insert([{
+                  user_id: order.user_id,
+                  package_name: packageName,
+                  slots_added: slotsToAdd,
+                  expires_at: expirationDate.toISOString()
+              }]);
 
-            // Aktualizujemy profil jednym strzałem
-            const { error: profileError } = await supabaseAdmin
-              .from('profiles')
-              .update(profileUpdates)
-              .eq('id', order.user_id);
-
-            if (profileError) {
-                console.error("❌ BŁĄD SUPABASE (AKTUALIZACJA PROFILU):", profileError);
+            if (packageError) {
+                console.error("❌ BŁĄD SUPABASE (DODAWANIE PAKIETU):", packageError);
             } else {
-                console.log(`🚀 Zaktualizowano profil usera ${order.user_id}. Limit: ${finalLimit}. Zweryfikowany: ${!!profileUpdates.is_verified_seller}`);
+                console.log(`📦 Zapisano pakiet (+${slotsToAdd} miejsc) do purchased_packages dla usera ${order.user_id}`);
+            }
+
+            // 3. Włączamy Weryfikację Sprzedawcy, jeśli to duży pakiet
+            if (order.package_id !== 'single') {
+                const { error: profileError } = await supabaseAdmin
+                  .from('profiles')
+                  .update({ is_verified_seller: true })
+                  .eq('id', order.user_id);
+
+                if (profileError) {
+                    console.error("❌ BŁĄD SUPABASE (AKTUALIZACJA PROFILU):", profileError);
+                } else {
+                    console.log(`✅ Włączono weryfikację konta dla ${order.user_id}`);
+                }
             }
         }
         
