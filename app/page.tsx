@@ -1,400 +1,278 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
+import SearchBar from '../components/SearchBar'; // <-- Upewnij się, że ścieżka do komponentu jest poprawna!
+
+// --- KARTA PREMIUM (Zoptymalizowana pod ciemne tło) ---
+const FeaturedAdCard = ({ item }: { item: any }) => (
+  <Link href={`/ogloszenie/${item.id}`} className="block w-56 md:w-64 shrink-0 snap-start group cursor-pointer bg-white rounded-[2rem] p-3 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 hover:-translate-y-2 transition-all duration-400 border border-transparent hover:border-amber-200">
+    <div className="w-full aspect-[4/3] bg-gray-50 rounded-2xl overflow-hidden mb-4 relative">
+      {item.image_url ? (
+        <img src={item.image_url} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+           <span className="text-3xl">📸</span>
+        </div>
+      )}
+      {/* Ekskluzywny Tag Promowania */}
+      <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1.5 z-10 border border-white/10">
+        <span className="text-amber-400 text-sm leading-none">★</span> Premium
+      </div>
+    </div>
+    <div className="px-2 pb-1">
+      <p className="text-[10px] font-black text-green-600 uppercase truncate mb-1 tracking-widest">{item.category}</p>
+      <h4 className="text-base font-bold text-gray-900 leading-snug mb-3 line-clamp-2">{item.title}</h4>
+      <div className="flex justify-between items-end mt-auto">
+        <p className="text-xl font-black text-gray-900">{item.price} <span className="text-xs font-bold text-gray-400">PLN</span></p>
+        <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-amber-400 group-hover:text-black transition-colors text-gray-400">
+          <span className="text-sm font-bold transform -rotate-45">➔</span>
+        </div>
+      </div>
+    </div>
+  </Link>
+);
+
+// Eleganckie kategorie z tłami
+const categoryStyles: Record<string, { icon: string, bg: string, color: string }> = {
+  'Węże': { icon: '🐍', bg: 'bg-emerald-50', color: 'text-emerald-600' },
+  'Jaszczurki': { icon: '🦎', bg: 'bg-lime-50', color: 'text-lime-600' },
+  'Pająki': { icon: '🕷️', bg: 'bg-stone-50', color: 'text-stone-600' },
+  'Żaby i Płazy': { icon: '🐸', bg: 'bg-teal-50', color: 'text-teal-600' },
+  'Owady': { icon: '🦗', bg: 'bg-amber-50', color: 'text-amber-600' },
+  'Akcesoria': { icon: '📦', bg: 'bg-blue-50', color: 'text-blue-600' },
+  'Terraria': { icon: '🏜️', bg: 'bg-orange-50', color: 'text-orange-600' },
+  'Pokarm': { icon: '🍎', bg: 'bg-red-50', color: 'text-red-600' },
+};
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
-  const [listings, setListings] = useState<any[]>([]);
-  const [filteredListings, setFilteredListings] = useState<any[]>([]);
   
-  const [dbCategories, setDbCategories] = useState<any[]>([]);
-  const [dbSpecies, setDbSpecies] = useState<any[]>([]);
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedParentId, setSelectedParentId] = useState('');
-  const [selectedSubId, setSelectedSubId] = useState('');
-  const [selectedSpeciesId, setSelectedSpeciesId] = useState('');
-  const [minPrice, setMinPrice] = useState('');
-  const [maxPrice, setMaxPrice] = useState('');
-
-  const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
-
-  // --- NOWOŚĆ: STANY DLA CUSTOMOWYCH DROPDOWNÓW ---
-  const [openDropdown, setOpenDropdown] = useState<'parent' | 'sub' | 'species' | null>(null);
-  const dropdownsRef = useRef<HTMLDivElement>(null);
+  const [recentListings, setRecentListings] = useState<any[]>([]);
+  const [featuredListings, setFeaturedListings] = useState<any[]>([]);
+  const [mainCategories, setMainCategories] = useState<any[]>([]);
 
   useEffect(() => {
-   const fetchAllData = async () => {
-      // Wymuszamy ŚCIŚLE określoną relację po nazwie naszego klucza (fk_seller_profile)
-      const { data: ads, error: adsError } = await supabase
+    const fetchHomeData = async () => {
+      const { data: cats } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('is_active', true)
+        .is('parent_id', null) 
+        .order('name');
+      
+      if (cats) setMainCategories(cats);
+
+      const { data: ads } = await supabase
         .from('listings')
-        .select('*, seller:profiles!fk_seller_profile(username, store_address)')
+        .select('*, seller:profiles!fk_seller_profile(username, store_address, is_verified_seller), species(latin_name)')
         .eq('status', 'active')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(20);
 
-      if (adsError) {
-        console.warn("Błąd relacji w bazie, ładuję tryb awaryjny:", (adsError as any).message || adsError);
-        const { data: fallbackAds } = await supabase.from('listings').select('*').eq('status', 'active').order('created_at', { ascending: false });
-        if (fallbackAds) {
-          setListings(fallbackAds);
-          setFilteredListings(fallbackAds);
-        }
-      } else if (ads) {
-        setListings(ads);
-        setFilteredListings(ads);
+      if (ads) {
+        setRecentListings(ads);
+        const verifiedAds = ads.filter(ad => ad.seller?.is_verified_seller);
+        setFeaturedListings(verifiedAds.length > 0 ? verifiedAds : ads.slice(0, 6)); 
       }
-
-      const { data: cats } = await supabase.from('categories').select('*').eq('is_active', true);
-      const { data: specs } = await supabase.from('species').select('*').eq('is_approved', true).order('name');
-
-      if (cats) setDbCategories(cats);
-      if (specs) setDbSpecies(specs);
+      
       setLoading(false);
     };
-    fetchAllData();
+
+    fetchHomeData();
   }, []);
 
-  // Nasłuchiwacz: Zamknij dropdowny klikając poza nie
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownsRef.current && !dropdownsRef.current.contains(event.target as Node)) {
-        setOpenDropdown(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
-    let result = listings;
-
-   if (searchTerm) {
-      const query = searchTerm.toLowerCase();
-      
-      result = result.filter(ad => {
-        // 1. Sprawdzamy, czy fraza jest w tytule
-        const inTitle = ad.title.toLowerCase().includes(query);
-        
-        // 2. Sprawdzamy, czy fraza jest w nazwie kategorii 
-        // (używamy ad.category?, żeby aplikacja nie wybuchła, jeśli kategoria jest pusta)
-        const inCategory = ad.category?.toLowerCase().includes(query);
-
-        // Zwracamy TRUE, jeśli chociaż jedno z powyższych to prawda
-        return inTitle || inCategory;
-      });
-    }
-
-    if (selectedSubId) {
-      const subCat = dbCategories.find(c => c.id === selectedSubId);
-      if (subCat) result = result.filter(ad => ad.category === subCat.name);
-    } else if (selectedParentId) {
-      const parentCat = dbCategories.find(c => c.id === selectedParentId);
-      const childNames = dbCategories.filter(c => c.parent_id === selectedParentId).map(c => c.name);
-      const allowedCategoryNames = parentCat ? [parentCat.name, ...childNames] : [];
-      result = result.filter(ad => allowedCategoryNames.includes(ad.category));
-    }
-
-    if (selectedSpeciesId) result = result.filter(ad => ad.species_id === selectedSpeciesId);
-    if (minPrice) result = result.filter(ad => ad.price >= parseFloat(minPrice));
-    if (maxPrice) result = result.filter(ad => ad.price <= parseFloat(maxPrice));
-
-    setFilteredListings(result);
-  }, [listings, searchTerm, selectedParentId, selectedSubId, selectedSpeciesId, minPrice, maxPrice, dbCategories]);
-
- // --- POMOCNICY UI (KULOODPORNI) ---
-  const mainCats = dbCategories.filter(c => !c.parent_id);
-  
-  // Wymuszamy typ String, żeby uniknąć konfliktów typu 123 !== "123"
-  const subCats = dbCategories.filter(c => String(c.parent_id) === String(selectedParentId));
-  
-  const currentCatObj = selectedSubId 
-    ? dbCategories.find(c => String(c.id) === String(selectedSubId)) 
-    : dbCategories.find(c => String(c.id) === String(selectedParentId));
-    
-  const parentCatObj = selectedParentId 
-    ? dbCategories.find(c => String(c.id) === String(selectedParentId)) 
-    : null;
-
-  // POPRAWKA 1: Dziedziczenie. Jeśli "Węże" wymagają gatunku, to "Pytony" z automatu też!
-  const showSpeciesFilter = currentCatObj 
-    ? (currentCatObj.requires_species || parentCatObj?.requires_species) 
-    : true;
-
-  const availableSpecies = dbSpecies.filter(s => {
-    // POPRAWKA 2: Mocne i bezpieczne porównywanie ID
-    
-    // 1. Wybrano podkategorię (np. Pytony)
-    if (selectedSubId) {
-      return String(s.category_id) === String(selectedSubId);
-    }
-    
-    // 2. Wybrano tylko kategorię główną (np. Węże)
-    if (selectedParentId) {
-      const childIds = dbCategories
-        .filter(c => String(c.parent_id) === String(selectedParentId))
-        .map(c => String(c.id));
-        
-      return String(s.category_id) === String(selectedParentId) || childIds.includes(String(s.category_id));
-    }
-    
-    // 3. Nic nie wybrano
-    return true; 
-  });
-  
-  const clearFilters = () => {
-    setSearchTerm('');
-    setSelectedParentId('');
-    setSelectedSubId('');
-    setSelectedSpeciesId('');
-    setMinPrice('');
-    setMaxPrice('');
-  };
-
-  if (loading) return <div className="flex justify-center items-center h-screen font-black text-gray-400 text-2xl animate-pulse">Ładowanie giełdy...</div>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white">
+        <div className="w-12 h-12 border-4 border-gray-100 border-t-green-500 rounded-full animate-spin mb-4"></div>
+        <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Przygotowujemy giełdę...</p>
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-gray-50 pb-20">
+    <main className="min-h-screen bg-[#F8FAFC] pb-24 overflow-x-hidden font-sans">
       
-      <section className="bg-black text-white pt-20 pb-20 md:pb-28 px-6 text-center relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-500 via-black to-black"></div>
-        <div className="relative z-10 max-w-4xl mx-auto">
-          <h1 className="text-4xl md:text-7xl font-black mb-6 tracking-tight">Egzotyka w jednym miejscu.</h1>
-          <p className="text-lg md:text-2xl text-gray-400 font-medium mb-10">Największa giełda terrarystyczna. Znajdź wymarzonego zwierzaka.</p>
-          <Link href="/dodaj-ogloszenie" className="bg-green-500 text-black font-black px-8 py-4 rounded-full text-lg hover:bg-green-400 transition shadow-[0_0_40px_rgba(34,197,94,0.3)]">
-            + Dodaj Ogłoszenie
+     {/* --- HERO SECTION --- */}
+      {/* USUNĄŁEM overflow-hidden z głównego tagu section! */}
+      <section className="bg-white pt-20 pb-32 px-4 md:px-6 text-center relative rounded-b-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.02)] z-30">
+        
+        {/* Zamiast tego, włożyłem ten świecący background do osobnego, przyciętego kontenera (klatka na tło) */}
+        <div className="absolute inset-0 overflow-hidden rounded-b-[3rem] pointer-events-none -z-10">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-green-50 rounded-full blur-3xl opacity-50"></div>
+        </div>
+        <div className="relative z-10 max-w-4xl mx-auto flex flex-col items-center">
+          
+          <div className="mb-6 inline-flex items-center gap-2 bg-green-50 border border-green-100 px-4 py-1.5 rounded-full">
+            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+            <span className="text-xs font-black text-green-800 uppercase tracking-widest">Ponad {recentListings.length * 10}+ ogłoszeń</span>
+          </div>
+
+          <h1 className="text-5xl md:text-[5.5rem] font-black mb-6 tracking-tighter leading-[1.1] text-gray-900">
+            Egzotyka <br className="md:hidden" />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-700">
+              na wyciągnięcie ręki.
+            </span>
+          </h1>
+          <p className="text-lg md:text-xl text-gray-500 font-medium mb-12 max-w-2xl leading-relaxed">
+            Odkrywaj fascynujący świat terrarystyki. Kupuj i sprzedawaj bezpiecznie w największej społeczności w Polsce.
+          </p>
+          
+      
+        </div>
+      </section>
+
+      {/* --- STREFA VIP (POTĘŻNY CIEMNY PANEL) --- */}
+      {featuredListings.length > 0 && (
+        <section className="max-w-[1400px] mx-auto px-4 md:px-8 -mt-16 relative z-20 mb-20">
+          <div className="bg-gray-900 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-gray-800 relative overflow-hidden">
+            
+            {/* Abstrakcyjny Glow w tle panelu */}
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[800px] h-[300px] bg-amber-500/15 blur-[100px] rounded-full pointer-events-none"></div>
+            
+            <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+              <div>
+                <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
+                  <span className="text-amber-400 text-3xl animate-pulse">★</span> Oferty Premium
+                </h2>
+                <p className="text-gray-400 font-medium mt-2 max-w-md leading-relaxed">
+                  Wyselekcjonowane ogłoszenia od sprawdzonych hodowców. Złap najlepsze okazje.
+                </p>
+              </div>
+              <Link href="/szukaj" className="text-amber-400 hover:text-amber-300 bg-white/5 hover:bg-white/10 px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 backdrop-blur-md border border-white/10">
+                Zobacz wszystkie <span className="text-lg">➔</span>
+              </Link>
+            </div>
+
+            {/* Slider z ujemnymi marginesami dla gładkiego przewijania */}
+            <div className="relative z-10 flex gap-5 overflow-x-auto pb-6 pt-2 custom-scrollbar snap-x snap-mandatory hide-scrollbar -mx-6 px-6 md:-mx-10 md:px-10">
+              {featuredListings.map(ad => <FeaturedAdCard key={ad.id} item={ad} />)}
+            </div>
+            
+          </div>
+        </section>
+      )}
+
+      {/* --- KATEGORIE (CZYSTY GRID) --- */}
+      <section className="max-w-6xl mx-auto px-4 md:px-6 mb-24">
+        <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-8">
+          Przeglądaj kategorie
+        </h2>
+        
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+          {mainCategories.map(cat => {
+            const style = categoryStyles[cat.name] || { icon: '🦎', bg: 'bg-gray-50', color: 'text-gray-600' };
+            
+            return (
+              <Link 
+                key={cat.id} 
+                href={`/szukaj?category=${encodeURIComponent(cat.name)}`}
+                className="bg-white rounded-[2rem] p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-xl border border-gray-100 hover:border-transparent transition-all duration-300 group"
+              >
+                <div className={`w-20 h-20 ${style.bg} rounded-full flex items-center justify-center mb-5 group-hover:scale-110 transition-transform duration-500 ease-out`}>
+                  <span className="text-4xl">
+                    {style.icon}
+                  </span>
+                </div>
+                <span className="font-bold text-gray-900 text-base group-hover:text-green-600 transition-colors">
+                  {cat.name}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* --- NAJNOWSZE OGŁOSZENIA (GRID) --- */}
+      <section className="max-w-6xl mx-auto px-4 md:px-6">
+        <div className="flex justify-between items-end mb-10">
+          <div>
+            <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-2">
+              Świeżo dodane
+            </h2>
+            <p className="text-gray-500 font-medium hidden md:block text-lg">Odkryj najnowsze okazy na giełdzie.</p>
+          </div>
+          <Link href="/szukaj" className="text-sm font-black text-gray-900 bg-white border border-gray-200 px-6 py-3 rounded-full hover:border-black hover:shadow-md transition-all flex items-center gap-2">
+            Wszystkie <span className="hidden md:inline">ogłoszenia</span> ➔
           </Link>
         </div>
-      </section>
 
-      {/* FILTRY */}
-      <section className="max-w-6xl mx-auto px-4 md:px-6 -mt-8 md:-mt-16 relative z-20">
-        <div className="bg-white rounded-3xl p-4 md:p-8 shadow-2xl border border-gray-100" ref={dropdownsRef}>
-          
-          <div className="flex flex-col md:flex-row gap-4 mb-4">
-            <div className="flex-1 relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl">🔍</span>
-              <input 
-                type="text" 
-                placeholder="Czego szukasz?" 
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full bg-gray-50 border border-gray-200 rounded-2xl pl-12 pr-4 py-4 outline-none focus:ring-2 focus:ring-black font-bold"
-              />
-            </div>
-            <button 
-              onClick={() => setIsMobileFiltersOpen(!isMobileFiltersOpen)} 
-              className="md:hidden px-6 py-4 bg-black text-white font-bold rounded-2xl transition"
-            >
-              {isMobileFiltersOpen ? 'Ukryj filtry' : '⚙️ Pokaż filtry'}
-            </button>
-            <button onClick={clearFilters} className="hidden md:block px-6 py-4 bg-gray-100 text-gray-600 font-bold rounded-2xl hover:bg-gray-200 transition">
-              Wyczyść filtry
-            </button>
-          </div>
-
-          <div className={`${isMobileFiltersOpen ? 'grid' : 'hidden'} md:grid grid-cols-1 md:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-2`}>
-            
-            {/* 1. CUSTOM DROPDOWN: Kategoria Główna */}
-            <div className="relative">
-              <button 
-                onClick={() => setOpenDropdown(openDropdown === 'parent' ? null : 'parent')}
-                className="w-full flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none hover:border-gray-300 focus:ring-2 focus:ring-black transition font-medium truncate"
-              >
-                <span className="truncate">{selectedParentId ? mainCats.find(c => c.id === selectedParentId)?.name : 'Wszystkie działy'}</span>
-                <span className={`text-[10px] transition-transform ${openDropdown === 'parent' ? 'rotate-180' : ''}`}>▼</span>
-              </button>
-              
-              {openDropdown === 'parent' && (
-                <div className="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95">
-                  <button 
-                    onClick={() => { setSelectedParentId(''); setSelectedSubId(''); setSelectedSpeciesId(''); setOpenDropdown(null); }}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 font-bold text-gray-500 border-b border-gray-50"
-                  >
-                    Wszystkie działy
-                  </button>
-                  {mainCats.map(c => (
-                    <button 
-                      key={c.id} 
-                      onClick={() => { setSelectedParentId(c.id); setSelectedSubId(''); setSelectedSpeciesId(''); setOpenDropdown(null); }}
-                      className={`w-full text-left px-4 py-3 hover:bg-green-50 transition ${selectedParentId === c.id ? 'bg-green-50 text-green-700 font-black' : 'text-gray-900 font-medium'}`}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 2. CUSTOM DROPDOWN: Podkategoria */}
-            <div className="relative">
-              <button 
-                onClick={() => setOpenDropdown(openDropdown === 'sub' ? null : 'sub')}
-                disabled={!selectedParentId || subCats.length === 0}
-                className="w-full flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none hover:border-gray-300 focus:ring-2 focus:ring-black transition font-medium disabled:opacity-50 disabled:cursor-not-allowed truncate"
-              >
-                <span className="truncate">{selectedSubId ? subCats.find(c => c.id === selectedSubId)?.name : 'Wszystkie podkategorie'}</span>
-                <span className={`text-[10px] transition-transform ${openDropdown === 'sub' ? 'rotate-180' : ''}`}>▼</span>
-              </button>
-              
-              {openDropdown === 'sub' && !(!selectedParentId || subCats.length === 0) && (
-                <div className="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95">
-                  <button 
-                    onClick={() => { setSelectedSubId(''); setSelectedSpeciesId(''); setOpenDropdown(null); }}
-                    className="w-full text-left px-4 py-3 hover:bg-gray-50 font-bold text-gray-500 border-b border-gray-50"
-                  >
-                    Wszystkie podkategorie
-                  </button>
-                  {subCats.map(c => (
-                    <button 
-                      key={c.id} 
-                      onClick={() => { setSelectedSubId(c.id); setSelectedSpeciesId(''); setOpenDropdown(null); }}
-                      className={`w-full text-left px-4 py-3 hover:bg-green-50 transition ${selectedSubId === c.id ? 'bg-green-50 text-green-700 font-black' : 'text-gray-900 font-medium'}`}
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* 3. CUSTOM DROPDOWN: Gatunek */}
-            {showSpeciesFilter ? (
-              <div className="relative">
-                <button 
-                  onClick={() => setOpenDropdown(openDropdown === 'species' ? null : 'species')}
-                  disabled={availableSpecies.length === 0}
-                  className="w-full flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 outline-none hover:border-gray-300 focus:ring-2 focus:ring-black transition font-medium disabled:opacity-50 disabled:cursor-not-allowed truncate"
-                >
-                  <span className="truncate">
-                    {selectedSpeciesId 
-                      ? availableSpecies.find(s => s.id === selectedSpeciesId)?.name 
-                      : (availableSpecies.length === 0 ? 'Brak gatunków' : 'Wszystkie gatunki')}
-                  </span>
-                  <span className={`text-[10px] transition-transform ${openDropdown === 'species' ? 'rotate-180' : ''}`}>▼</span>
-                </button>
-                
-                {openDropdown === 'species' && availableSpecies.length > 0 && (
-                  <div className="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in zoom-in-95">
-                    <button 
-                      onClick={() => { setSelectedSpeciesId(''); setOpenDropdown(null); }}
-                      className="w-full text-left px-4 py-3 hover:bg-gray-50 font-bold text-gray-500 border-b border-gray-50"
-                    >
-                      Wszystkie gatunki
-                    </button>
-                    {availableSpecies.map(s => (
-                      <button 
-                        key={s.id} 
-                        onClick={() => { setSelectedSpeciesId(s.id); setOpenDropdown(null); }}
-                        className={`w-full text-left px-4 py-3 hover:bg-green-50 transition flex flex-col ${selectedSpeciesId === s.id ? 'bg-green-50 border-l-4 border-green-500' : ''}`}
-                      >
-                        <span className={`font-bold ${selectedSpeciesId === s.id ? 'text-green-800' : 'text-gray-900'}`}>{s.name}</span>
-                        <span className="text-[10px] text-gray-500 italic">{s.latin_name}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-gray-400 font-medium flex items-center justify-center truncate">
-                Nie wymaga gatunku
-              </div>
-            )}
-
-            {/* 4. Cena Od - Do */}
-            <div className="flex gap-2">
-              <input type="number" placeholder="Cena od" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 outline-none focus:border-gray-400 font-medium text-sm transition" />
-              <input type="number" placeholder="Cena do" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="w-1/2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-3 outline-none focus:border-gray-400 font-medium text-sm transition" />
-            </div>
-            
-            <button onClick={clearFilters} className="md:hidden mt-2 px-6 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl active:bg-gray-200 transition">
-              Wyczyść
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* --- WYNIKI WYSZUKIWANIA --- */}
-    {/* --- WYNIKI WYSZUKIWANIA --- */}
-      <section className="max-w-6xl mx-auto px-4 md:px-6 mt-8 md:mt-12">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl md:text-2xl font-black text-gray-900">Znalezione ogłoszenia</h2>
-          <span className="bg-black text-white px-3 py-1 rounded-full text-sm font-bold">{filteredListings.length}</span>
-        </div>
-
-        {filteredListings.length === 0 ? (
-          <div className="bg-white p-10 md:p-20 rounded-3xl border text-center">
-            <div className="text-5xl md:text-6xl mb-4 opacity-50">🏜️</div>
-            <h3 className="text-xl md:text-2xl font-black text-gray-800 mb-2">Pustynia...</h3>
-            <p className="text-gray-500 font-medium text-sm md:text-base">Brak ogłoszeń spełniających Twoje kryteria.</p>
-            <button onClick={clearFilters} className="mt-6 bg-black text-white px-6 py-2 rounded-xl font-bold hover:bg-gray-800 transition">
-              Wyczyść filtry
-            </button>
+        {recentListings.length === 0 ? (
+          <div className="bg-white p-12 rounded-[2.5rem] border border-gray-100 text-center shadow-sm">
+            <p className="text-gray-500 font-medium">Brak aktywnych ogłoszeń.</p>
           </div>
         ) : (
-          /* Zmiana siatki: Na mobile 1 kolumna, od tabletów 2, potem 3 i 4 */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-            {filteredListings.map(ad => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
+            {recentListings.map(ad => (
               <Link 
                 key={ad.id} 
                 href={`/ogloszenie/${ad.id}`} 
-                // FLEX MAGIA: Na mobile poziomo (flex-row), na desktopie pionowo (md:flex-col)
-                className="group bg-white rounded-2xl md:rounded-3xl border border-gray-200 overflow-hidden hover:shadow-xl hover:border-gray-300 transition duration-300 flex flex-row md:flex-col"
+                className="group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-2xl hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-row md:flex-col relative shadow-sm"
               >
-                {/* ZDJĘCIE - Stała szerokość na mobile (w-32 lub 40%), pełna na desktopie */}
-                <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-100 relative overflow-hidden shrink-0">
+                {/* ZDJĘCIE */}
+                <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-50 relative overflow-hidden shrink-0">
                   {ad.image_url ? (
-                    <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                    <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
-                      <span className="text-3xl mb-1">📸</span>
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                      <span className="text-4xl mb-1">📸</span>
                     </div>
                   )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
+                  
                   {ad.cites_certificate && (
-                    <div className="absolute top-2 left-2 bg-blue-600 text-white text-[9px] md:text-[10px] font-black px-1.5 py-0.5 rounded uppercase shadow-md flex items-center gap-1 z-10">
+                    <div className="absolute top-3 left-3 bg-blue-600/90 backdrop-blur-sm text-white text-[9px] font-black px-2.5 py-1 rounded-md uppercase shadow-lg flex items-center gap-1 z-10">
                       <span>📜</span> CITES
                     </div>
                   )}
                 </div>
 
-                {/* TREŚĆ KARTY - min-w-0 pozwala na prawidłowe ucinanie długich tekstów (...) */}
-                <div className="p-3 md:p-5 flex flex-col flex-1 min-w-0">
+                {/* TREŚĆ KARTY */}
+                <div className="p-4 md:p-6 flex flex-col flex-1 min-w-0">
                   
                   {/* TAGI: Kategoria i Stan */}
-                  <div className="mb-1.5 flex flex-wrap gap-1.5 items-center">
-                    <span className="bg-gray-100 text-gray-600 text-[9px] md:text-[10px] font-black uppercase px-2 py-1 rounded truncate max-w-[120px]">
+                  <div className="mb-3 flex flex-wrap gap-2 items-center">
+                    <span className="text-[10px] font-black uppercase text-green-600 tracking-widest truncate max-w-[120px]">
                       {ad.category}
                     </span>
                     {ad.condition && (
-                      <span className={`text-[9px] md:text-[10px] font-black uppercase px-2 py-1 rounded shrink-0 ${ad.condition === 'new' ? 'bg-green-100 text-green-700' : ad.condition === 'used' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className="text-gray-300 mx-1">•</span>
+                    )}
+                    {ad.condition && (
+                      <span className={`text-[10px] font-bold uppercase truncate ${ad.condition === 'new' ? 'text-gray-500' : 'text-orange-500'}`}>
                         {ad.condition === 'new' ? 'Nowy' : ad.condition === 'used' ? 'Używany' : 'Uszk.'}
                       </span>
                     )}
                   </div>
                   
-                  {/* TYTUŁ - 2 linijki max, potem kropki (...) */}
-                  <h3 className="text-sm md:text-lg font-black text-gray-900 leading-tight mb-2 group-hover:text-green-600 transition line-clamp-2 break-words">
+                  {/* TYTUŁ */}
+                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-snug mb-1 group-hover:text-green-600 transition-colors line-clamp-2 break-words">
                     {ad.title}
                   </h3>
                   
-                 {/* DANE SPRZEDAWCY (Lokalizacja i Nazwa) */}
-                  <div className="mt-auto flex flex-col gap-1 mb-2">
-                    <div className="flex items-center gap-1.5 text-gray-500 text-[10px] md:text-xs">
-                      <span className="shrink-0">📍</span> 
-                      <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-gray-500 text-[10px] md:text-xs">
-                      <span className="shrink-0">👤</span> 
-                      <span className="truncate font-bold">{ad.seller?.username || 'Anonim'}</span>
-                    </div>
+                  {/* NAZWA ŁACIŃSKA */}
+                  {ad.species?.latin_name && (
+                    <p className="text-xs text-gray-400 italic mb-3 truncate">
+                      {ad.species.latin_name}
+                    </p>
+                  )}
+                  
+                  {/* LOKALIZACJA */}
+                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-gray-400 text-xs">
+                    <span className="shrink-0">📍</span> 
+                    <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
                   </div>
 
                   {/* CENA */}
-                  <div className="pt-2 border-t border-gray-100 mt-1">
-                    <p className="text-lg md:text-2xl font-black text-green-600 leading-none truncate">
-                      {ad.price} <span className="text-xs md:text-sm text-green-700/70">PLN</span>
+                  <div className="pt-3 mt-3 border-t border-gray-50 flex justify-between items-end">
+                    <p className="text-xl md:text-2xl font-black text-gray-900 leading-none truncate">
+                      {ad.price} <span className="text-xs md:text-sm text-gray-400 font-bold">PLN</span>
                     </p>
+                    <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors duration-300 hidden md:flex">
+                      <span className="font-bold text-sm transform -rotate-45">➔</span>
+                    </div>
                   </div>
 
                 </div>
@@ -403,6 +281,13 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {/* Poprawka składni React (dangerouslySetInnerHTML) */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      `}} />
+
     </main>
   );
 }
