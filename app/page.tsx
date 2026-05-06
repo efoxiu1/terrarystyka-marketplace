@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
 
@@ -45,16 +45,11 @@ const categoryStyles: Record<string, { icon: string, bg: string, color: string, 
   'Pokarm': { icon: '🍎', bg: 'bg-red-50', color: 'text-red-600', border: 'hover:border-red-200' },
 };
 
-// 🔥 FUNKCJA WAŻONEGO LOSOWANIA (Weighted Random Sampling) 🔥
-// Im wyższy ranking_score tym większa waga (większa szansa na wylosowanie),
-// ale słabsze ogłoszenia (z niskim rankingiem) nadal mają szansę!
-// 🔥 NAPRAWIONA FUNKCJA WAŻONEGO LOSOWANIA 🔥
-// Teraz losuje i miesza ZAWSZE, nawet jeśli masz w bazie tylko 3 ogłoszenia!
+// 🔥 FUNKCJA WAŻONEGO LOSOWANIA 🔥
 const getWeightedRandomSample = (items: any[], sampleSize: number) => {
   const actualSampleSize = Math.min(items.length, sampleSize);
   if (actualSampleSize === 0) return [];
 
-  // Przypisujemy wagi (min. 1, max = ranking_score)
   let pool = items.map(item => ({
     ...item,
     weight: Math.max(1, item.ranking_score || 0) 
@@ -62,7 +57,6 @@ const getWeightedRandomSample = (items: any[], sampleSize: number) => {
 
   const selected = [];
   
-  // Pętla kręci się tyle razy, ile mamy pobrać ogłoszeń
   for (let i = 0; i < actualSampleSize; i++) {
     const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
     let random = Math.random() * totalWeight;
@@ -71,7 +65,7 @@ const getWeightedRandomSample = (items: any[], sampleSize: number) => {
       random -= pool[j].weight;
       if (random <= 0) {
         selected.push(pool[j]);
-        pool.splice(j, 1); // Usuwamy, żeby nie wylosować tego samego 2 razy
+        pool.splice(j, 1); 
         break;
       }
     }
@@ -79,15 +73,21 @@ const getWeightedRandomSample = (items: any[], sampleSize: number) => {
   return selected;
 };
 
+const ITEMS_PER_PAGE = 20;
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
   
-  const [recentListings, setRecentListings] = useState<any[]>([]);
   const [featuredListings, setFeaturedListings] = useState<any[]>([]);
   const [mainCategories, setMainCategories] = useState<any[]>([]);
-  
   const [randomStrips, setRandomStrips] = useState<{category: string, listings: any[]}[]>([]);
+
+  // 🔥 STANY NIESKOŃCZONEGO PRZEWIJANIA (INFINITE SCROLL)
+  const [allCatalogListings, setAllCatalogListings] = useState<any[]>([]); // Pełna, zmieszana pula
+  const [displayedCatalog, setDisplayedCatalog] = useState<any[]>([]);     // Ogłoszenia aktualnie widoczne
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchHomeData = async () => {
@@ -101,8 +101,7 @@ export default function Home() {
       
       if (cats) setMainCategories(cats);
 
-      // 2. Pobieramy SZEROKĄ pulę aktywnych ogłoszeń
-      // Limit 300 wystarczy żeby losowanie było szybkie i różnorodne
+      // 2. Pobieramy SZEROKĄ pulę aktywnych ogłoszeń (300 sztuk do mieszania)
       const { data: ads } = await supabase
         .from('listings')
         .select('*, seller:profiles!fk_seller_profile(username, store_address, is_verified_seller), species(latin_name)')
@@ -112,38 +111,31 @@ export default function Home() {
 
       if (ads && ads.length > 0) {
         
-        // --- A: OFERTY PREMIUM (Górny pasek ciemny) ---
-        // Wybieramy tylko te od zweryfikowanych sprzedawców, potem sortujemy po rankingu na twardo
+        // --- A: OFERTY PREMIUM ---
         const verifiedAds = ads.filter(ad => ad.seller?.is_verified_seller);
         const topPremium = verifiedAds.sort((a, b) => (b.ranking_score || 0) - (a.ranking_score || 0)).slice(0, 10);
-        // Fallback jeśli nie ma zweryfikowanych to bierzemy po prostu najlepsze
         setFeaturedListings(topPremium.length > 0 ? topPremium : ads.sort((a, b) => (b.ranking_score || 0) - (a.ranking_score || 0)).slice(0, 8));
 
-        // --- B: DOLNA SIATKA "Świeżo dodane" (ALE WAŻONE) ---
-        // Zamiast tylko najnowszych, pokazujemy w siatce ważone ogłoszenia!
-        // Wybieramy 20 ogłoszeń z dużą szansą na te z wysokim rankingiem
-        setRecentListings(getWeightedRandomSample(ads, 20));
+        // --- B: DOLNA SIATKA (Przygotowanie Pełnej, Zmieszanej Puli pod Scrolla) ---
+        // Mieszamy absolutnie WSZYSTKIE pobrane ogłoszenia i zapisujemy do ukrytego bufora
+        const shuffledCatalog = getWeightedRandomSample(ads, ads.length);
+        setAllCatalogListings(shuffledCatalog);
+        
+        // Wrzucamy do widoku tylko pierwsze 20 sztuk
+        setDisplayedCatalog(shuffledCatalog.slice(0, ITEMS_PER_PAGE));
+        setHasMore(shuffledCatalog.length > ITEMS_PER_PAGE);
 
-        // --- C: ALGORYTM: LOSOWE PASKI KATEGORII (TEŻ WAŻONE) ---
-       // --- C: ALGORYTM: LOSOWE PASKI KATEGORII (TEŻ WAŻONE) ---
+        // --- C: ALGORYTM: LOSOWE PASKI KATEGORII ---
         const groupedByCategory: Record<string, any[]> = {};
         ads.forEach(ad => {
           if (!groupedByCategory[ad.category]) groupedByCategory[ad.category] = [];
           groupedByCategory[ad.category].push(ad);
         });
 
-        // Bierzemy kategorie, gdzie są chociaż 3 ogłoszenia
         let validCategories = Object.keys(groupedByCategory).filter(cat => groupedByCategory[cat].length >= 3);
+        if (validCategories.length < 2) validCategories = Object.keys(groupedByCategory);
         
-        // 🔥 ZABEZPIECZENIE: Jeśli masz za mało ogłoszeń, bierzemy JAKIEKOLWIEK kategorie, żeby paski zawsze były!
-        if (validCategories.length < 2) {
-          validCategories = Object.keys(groupedByCategory);
-        }
-        
-        // Losujemy 2 działy
         const shuffledCats = validCategories.sort(() => 0.5 - Math.random()).slice(0, 2);
-
-        // Tworzymy paski z ważonym losowaniem
         const generatedStrips = shuffledCats.map(cat => ({
           category: cat,
           listings: getWeightedRandomSample(groupedByCategory[cat], 8)
@@ -157,6 +149,38 @@ export default function Home() {
 
     fetchHomeData();
   }, []);
+
+  // 🔥 OBSERWATOR NIESKOŃCZONEGO PRZEWIJANIA 🔥
+  // Laser, który sprawdza czy zjechaliśmy na sam dół strony
+  useEffect(() => {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && hasMore) {
+        setPage((prevPage) => prevPage + 1); // Zwiększamy numer strony
+      }
+    }, { threshold: 0.1 });
+
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+    return () => observer.disconnect();
+  }, [hasMore]);
+
+  // Kiedy numer strony się zwiększy, dociągamy kolejne z bufora (Błyskawicznie!)
+  useEffect(() => {
+    if (page > 1) {
+      const startIndex = (page - 1) * ITEMS_PER_PAGE;
+      const endIndex = startIndex + ITEMS_PER_PAGE;
+      const nextItems = allCatalogListings.slice(startIndex, endIndex);
+      
+      if (nextItems.length > 0) {
+        setDisplayedCatalog(prev => [...prev, ...nextItems]);
+      }
+      
+      if (endIndex >= allCatalogListings.length) {
+        setHasMore(false); // Koniec ogłoszeń w naszej wylosowanej paczce 300 sztuk
+      }
+    }
+  }, [page, allCatalogListings]);
 
   if (loading) {
     return (
@@ -333,7 +357,7 @@ export default function Home() {
         </section>
       ))}
 
-      {/* --- OSTATNIO DODANE (ZAAWANSOWANY GRID Z LOSOWANIEM) --- */}
+      {/* --- OSTATNIO DODANE (Z INFINITE SCROLL) --- */}
       <section className="max-w-6xl mx-auto px-4 md:px-6">
         <div className="flex justify-between items-end mb-10">
           <div>
@@ -348,84 +372,95 @@ export default function Home() {
           </Link>
         </div>
 
-        {recentListings.length === 0 ? (
+        {displayedCatalog.length === 0 ? (
           <div className="bg-white p-16 rounded-[3rem] border border-gray-100 text-center shadow-sm">
             <span className="text-6xl mb-4 block opacity-20">📭</span>
             <p className="text-gray-500 font-medium text-lg">Brak aktywnych ogłoszeń w tym momencie.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
-            {recentListings.map(ad => (
-              <Link 
-                key={ad.id} 
-                href={`/ogloszenie/${ad.id}`} 
-                className="group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-row md:flex-col relative"
-              >
-                {/* ZDJĘCIE */}
-                <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-50 relative overflow-hidden shrink-0 border-r md:border-r-0 md:border-b border-gray-100">
-                  {ad.image_url ? (
-                    <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-100/50">
-                      <span className="text-4xl mb-1">📸</span>
-                    </div>
-                  )}
-                  
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
-                  
-                  {ad.cites_certificate && (
-                    <div className="absolute top-3 left-3 bg-blue-600/95 backdrop-blur-md text-white text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1 z-10 border border-white/20">
-                      <span>📜</span> CITES
-                    </div>
-                  )}
-                </div>
-
-                {/* TREŚĆ KARTY */}
-                <div className="p-4 md:p-6 flex flex-col flex-1 min-w-0 bg-white relative z-10">
-                  
-                  {/* TAGI: Kategoria i Stan */}
-                  <div className="mb-3 flex flex-wrap gap-2 items-center">
-                    <span className="text-[10px] font-black uppercase text-green-600 tracking-widest truncate max-w-[120px] bg-green-50 px-2 py-1 rounded-md">
-                      {ad.category}
-                    </span>
-                    {ad.condition && (
-                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-md truncate ${ad.condition === 'new' ? 'bg-gray-100 text-gray-600' : 'bg-orange-50 text-orange-600'}`}>
-                        {ad.condition === 'new' ? 'Nowy' : ad.condition === 'used' ? 'Używany' : 'Uszk.'}
-                      </span>
+          <div className="flex flex-col">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
+              {displayedCatalog.map(ad => (
+                <Link 
+                  key={ad.id} 
+                  href={`/ogloszenie/${ad.id}`} 
+                  className="group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-row md:flex-col relative"
+                >
+                  {/* ZDJĘCIE */}
+                  <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-50 relative overflow-hidden shrink-0 border-r md:border-r-0 md:border-b border-gray-100">
+                    {ad.image_url ? (
+                      <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-100/50">
+                        <span className="text-4xl mb-1">📸</span>
+                      </div>
+                    )}
+                    
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
+                    
+                    {ad.cites_certificate && (
+                      <div className="absolute top-3 left-3 bg-blue-600/95 backdrop-blur-md text-white text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1 z-10 border border-white/20">
+                        <span>📜</span> CITES
+                      </div>
                     )}
                   </div>
-                  
-                  {/* TYTUŁ */}
-                  <h3 className="text-base md:text-lg font-bold text-gray-900 leading-snug mb-1 group-hover:text-green-600 transition-colors line-clamp-2 break-words">
-                    {ad.title}
-                  </h3>
-                  
-                  {/* NAZWA ŁACIŃSKA */}
-                  {ad.species?.latin_name && (
-                    <p className="text-[11px] text-gray-400 italic mb-3 truncate font-medium">
-                      {ad.species.latin_name}
-                    </p>
-                  )}
-                  
-                  {/* LOKALIZACJA */}
-                  <div className="mt-auto pt-3 flex items-center gap-1.5 text-gray-400 text-xs">
-                    <span className="shrink-0">📍</span> 
-                    <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
-                  </div>
 
-                  {/* CENA */}
-                  <div className="pt-3 mt-3 border-t border-gray-100 flex justify-between items-end">
-                    <p className="text-xl md:text-2xl font-black text-gray-900 leading-none truncate tracking-tight">
-                      {ad.price} <span className="text-xs md:text-sm text-gray-400 font-bold">PLN</span>
-                    </p>
-                    <div className="w-8 h-8 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center group-hover:bg-black group-hover:border-black group-hover:text-white transition-all duration-300 hidden md:flex shadow-sm">
-                      <span className="font-bold text-sm transform -rotate-45">➔</span>
+                  {/* TREŚĆ KARTY */}
+                  <div className="p-4 md:p-6 flex flex-col flex-1 min-w-0 bg-white relative z-10">
+                    
+                    <div className="mb-3 flex flex-wrap gap-2 items-center">
+                      <span className="text-[10px] font-black uppercase text-green-600 tracking-widest truncate max-w-[120px] bg-green-50 px-2 py-1 rounded-md">
+                        {ad.category}
+                      </span>
+                      {ad.condition && (
+                        <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-md truncate ${ad.condition === 'new' ? 'bg-gray-100 text-gray-600' : 'bg-orange-50 text-orange-600'}`}>
+                          {ad.condition === 'new' ? 'Nowy' : ad.condition === 'used' ? 'Używany' : 'Uszk.'}
+                        </span>
+                      )}
                     </div>
-                  </div>
+                    
+                    <h3 className="text-base md:text-lg font-bold text-gray-900 leading-snug mb-1 group-hover:text-green-600 transition-colors line-clamp-2 break-words">
+                      {ad.title}
+                    </h3>
+                    
+                    {ad.species?.latin_name && (
+                      <p className="text-[11px] text-gray-400 italic mb-3 truncate font-medium">
+                        {ad.species.latin_name}
+                      </p>
+                    )}
+                    
+                    <div className="mt-auto pt-3 flex items-center gap-1.5 text-gray-400 text-xs">
+                      <span className="shrink-0">📍</span> 
+                      <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
+                    </div>
 
+                    <div className="pt-3 mt-3 border-t border-gray-100 flex justify-between items-end">
+                      <p className="text-xl md:text-2xl font-black text-gray-900 leading-none truncate tracking-tight">
+                        {ad.price} <span className="text-xs md:text-sm text-gray-400 font-bold">PLN</span>
+                      </p>
+                      <div className="w-8 h-8 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center group-hover:bg-black group-hover:border-black group-hover:text-white transition-all duration-300 hidden md:flex shadow-sm">
+                        <span className="font-bold text-sm transform -rotate-45">➔</span>
+                      </div>
+                    </div>
+
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            {/* LASER OBSERWATORA */}
+            <div ref={observerTarget} className="w-full py-16 flex justify-center items-center">
+              {hasMore ? (
+                <div className="w-8 h-8 border-4 border-gray-200 border-t-green-600 rounded-full animate-spin"></div>
+              ) : (
+                <div className="text-center">
+                  <p className="text-sm font-bold text-gray-400 bg-gray-100 px-6 py-3 rounded-full border border-gray-200">
+                    Przejrzałeś wszystkie wylosowane oferty! <Link href="/szukaj" className="text-green-600 ml-1 hover:underline">Szukaj dalej ➔</Link>
+                  </p>
                 </div>
-              </Link>
-            ))}
+              )}
+            </div>
+
           </div>
         )}
       </section>

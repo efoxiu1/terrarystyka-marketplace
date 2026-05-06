@@ -115,20 +115,43 @@ export default function DodajOgloszenie() {
     }
   }, []);
 
-  // 2. SPRAWDZANIE LIMITÓW
+// 2. SPRAWDZANIE LIMITÓW (Zaktualizowane: bierze z purchased_packages)
   useEffect(() => {
     const checkUserLimits = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setIsCheckingLimit(false); return; }
       setCurrentUser(user);
-      const { data: profile } = await supabase.from('profiles').select('max_active_listings').eq('id', user.id).single();
-      const { count } = await supabase.from('listings').select('*', { count: 'exact', head: true }).eq('seller_id', user.id).eq('status', 'active'); 
-      setLimitStats({ current: count || 0, max: profile?.max_active_listings ?? 2 });
+
+      // --- LOGIKA LIMITÓW Z CENNIKA ---
+      const BASE_LIMIT = 2; // Darmowe miejsca
+      const now = new Date().toISOString();
+      
+      // Pobieramy aktywne pakiety z bazy
+      const { data: packages } = await supabase
+        .from('purchased_packages')
+        .select('slots_added')
+        .eq('user_id', user.id)
+        .gt('expires_at', now);
+
+      let extraSlots = 0;
+      if (packages) {
+        extraSlots = packages.reduce((sum, pkg) => sum + pkg.slots_added, 0);
+      }
+
+      // Sprawdzamy, ile już mamy aktywnych ogłoszeń
+      const { count } = await supabase
+        .from('listings')
+        .select('*', { count: 'exact', head: true })
+        .eq('seller_id', user.id)
+        .eq('status', 'active'); 
+
+      // Ustawiamy zsumowany limit
+      setLimitStats({ current: count || 0, max: BASE_LIMIT + extraSlots });
       setIsCheckingLimit(false); 
     };
     checkUserLimits();
   }, []);
-
+  
   // 3. BRUDNOPIS
   useEffect(() => {
     const draft = {
@@ -563,10 +586,54 @@ export default function DodajOgloszenie() {
           )}
         </div>
 
-        <button type="submit" disabled={isBlocked || (needsSpecies && selectedSpeciesId === '') || isCheckoutLoading} className="w-full bg-black text-white font-black py-5 rounded-2xl hover:bg-gray-800 transition disabled:opacity-30 disabled:cursor-not-allowed shadow-2xl">
+     <button type="submit" disabled={isBlocked || (needsSpecies && selectedSpeciesId === '') || isCheckoutLoading} className="w-full bg-black text-white font-black py-5 rounded-2xl hover:bg-gray-800 transition disabled:opacity-30 disabled:cursor-not-allowed shadow-2xl">
           {isBlocked ? 'Dodawanie zablokowane' : isCheckoutLoading ? 'Przetwarzanie...' : 'Opublikuj Ogłoszenie 🚀'}
         </button>
       </form>
+
+      {/* --- 🔥 BRAKUJĄCY MODAL BRAKU LIMITU 🔥 --- */}
+      {showPaywallModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white max-w-2xl w-full rounded-3xl p-8 shadow-2xl animate-in zoom-in-95">
+            <div className="text-center mb-8">
+              <div className="text-6xl mb-4">🛑</div>
+              <h2 className="text-3xl font-black text-gray-900 mb-2">Limit wyczerpany!</h2>
+              <p className="text-gray-600 font-medium">
+                Masz już {limitStats.current} z {limitStats.max} aktywnych ogłoszeń. Twoje ogłoszenie jest gotowe do publikacji, ale musisz zwiększyć limit.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border-2 border-gray-200 rounded-2xl p-6 hover:border-gray-300 transition flex flex-col justify-between">
+                <div>
+                  <h3 className="text-xl font-bold mb-1">Pojedyncza Sztuka</h3>
+                  <p className="text-sm text-gray-500 mb-4">Kup miejsce tylko na to jedno ogłoszenie.</p>
+                  <p className="text-3xl font-black mb-6">9 <span className="text-sm font-medium">zł</span></p>
+                </div>
+                <button onClick={() => alert('Moduł płatności wkrótce!')} className="w-full bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-gray-800 transition">
+                  Kup 1 ogłoszenie
+                </button>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50 to-amber-100 border-2 border-amber-400 rounded-2xl p-6 flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute -right-6 -top-6 text-6xl opacity-20">🚀</div>
+                <div className="relative z-10">
+                  <h3 className="text-xl font-bold text-amber-900 mb-1">Zwiększ Pakiet</h3>
+                  <p className="text-sm text-amber-800/70 mb-4">Dopłać różnicę i przejdź na wyższy plan (np. Pro).</p>
+                  <p className="text-xl font-black text-amber-700 mb-6 mt-3">Tylko różnica w cenie</p>
+                </div>
+                <button onClick={() => router.push('/cennik')} className="w-full bg-amber-500 text-black font-black py-3 rounded-xl hover:bg-amber-600 transition shadow-lg relative z-10">
+                  Zobacz Cennik Dopłat
+                </button>
+              </div>
+            </div>
+
+            <button onClick={() => setShowPaywallModal(false)} className="mt-6 w-full text-gray-400 font-bold hover:text-gray-600 transition">
+              Anuluj i wróć do edycji
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

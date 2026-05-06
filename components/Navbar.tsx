@@ -67,7 +67,9 @@ export default function Navbar() {
         () => fetchUnreadCount()
       ).subscribe();
 
-    return () => supabase.removeChannel(channel);
+   return () => {
+  supabase.removeChannel(channel);
+};
   }, [user]);
 
   const handleLogout = async () => {
