@@ -22,6 +22,48 @@ const POLISH_VOIVODESHIPS = [
   'Wielkopolskie', 'Zachodniopomorskie'
 ];
 
+const CITIES_BY_VOIVODESHIP: Record<string, string[]> = {
+  'Dolnośląskie': ['Wrocław', 'Wałbrzych', 'Legnica', 'Jelenia Góra', 'Lubin', 'Głogów', 'Świdnica', 'Bolesławiec', 'Oleśnica', 'Oława', 'Inne...'],
+  'Kujawsko-pomorskie': ['Bydgoszcz', 'Toruń', 'Włocławek', 'Grudziądz', 'Inowrocław', 'Brodnica', 'Świecie', 'Chełmno', 'Inne...'],
+  'Lubelskie': ['Lublin', 'Zamość', 'Chełm', 'Biała Podlaska', 'Puławy', 'Świdnik', 'Kraśnik', 'Łuków', 'Biłgoraj', 'Inne...'],
+  'Lubuskie': ['Zielona Góra', 'Gorzów Wielkopolski', 'Nowa Sól', 'Żary', 'Żagań', 'Świebodzin', 'Międzyrzecz', 'Inne...'],
+  'Łódzkie': ['Łódź', 'Piotrków Trybunalski', 'Pabianice', 'Tomaszów Mazowiecki', 'Bełchatów', 'Zgierz', 'Skierniewice', 'Radomsko', 'Kutno', 'Inne...'],
+  'Małopolskie': ['Kraków', 'Tarnów', 'Nowy Sącz', 'Oświęcim', 'Chrzanów', 'Olkusz', 'Nowy Targ', 'Bochnia', 'Gorlice', 'Zakopane', 'Inne...'],
+  'Mazowieckie': ['Warszawa', 'Radom', 'Płock', 'Siedlce', 'Pruszków', 'Legionowo', 'Ostrołęka', 'Piaseczno', 'Otwock', 'Ciechanów', 'Inne...'],
+  'Opolskie': ['Opole', 'Kędzierzyn-Koźle', 'Nysa', 'Brzeg', 'Kluczbork', 'Prudnik', 'Strzelce Opolskie', 'Inne...'],
+  'Podkarpackie': ['Rzeszów', 'Przemyśl', 'Stalowa Wola', 'Mielec', 'Tarnobrzeg', 'Krosno', 'Dębica', 'Jarosław', 'Sanok', 'Jasło', 'Inne...'],
+  'Podlaskie': ['Białystok', 'Suwałki', 'Łomża', 'Augustów', 'Bielsk Podlaski', 'Zambrów', 'Grajewo', 'Hajnówka', 'Inne...'],
+  'Pomorskie': ['Gdańsk', 'Gdynia', 'Sopot', 'Słupsk', 'Tczew', 'Wejherowo', 'Rumia', 'Starogard Gdański', 'Chojnice', 'Malbork', 'Inne...'],
+  'Śląskie': ['Katowice', 'Częstochowa', 'Sosnowiec', 'Gliwice', 'Zabrze', 'Bielsko-Biała', 'Bytom', 'Rybnik', 'Ruda Śląska', 'Tychy', 'Dąbrowa Górnicza', 'Chorzów', 'Inne...'],
+  'Świętokrzyskie': ['Kielce', 'Ostrowiec Świętokrzyski', 'Starachowice', 'Skarżysko-Kamienna', 'Sandomierz', 'Końskie', 'Inne...'],
+  'Warmińsko-mazurskie': ['Olsztyn', 'Elbląg', 'Ełk', 'Ostróda', 'Iława', 'Giżycko', 'Kętrzyn', 'Szczytno', 'Mrągowo', 'Inne...'],
+  'Wielkopolskie': ['Poznań', 'Kalisz', 'Konin', 'Piła', 'Ostrów Wielkopolski', 'Gniezno', 'Leszno', 'Swarzędz', 'Luboń', 'Śrem', 'Inne...'],
+  'Zachodniopomorskie': ['Szczecin', 'Koszalin', 'Świnoujście', 'Stargard', 'Kołobrzeg', 'Szczecinek', 'Police', 'Wałcz', 'Białogard', 'Inne...']
+};
+
+// 🔥 SUPER-MOC WYSZUKIWARKI: Tolerancja na błędy ortograficzne i literówki
+const normalizeFuzzy = (str: string) => {
+  if (!str) return '';
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Usuwa ogonki (ą, ę -> a, e)
+    .toLowerCase()
+    .replace(/ł/g, "l")
+    .replace(/[^a-z0-9\s]/g, '') // Usuwa znaki specjalne
+    .replace(/(.)\1+/g, '$1'); // Usuwa podwójne litery (Correlophus -> corelofus, Terrarium -> terarium)
+};
+
+const isFuzzyMatch = (text: string, query: string) => {
+  if (!text || !query) return false;
+  const nText = normalizeFuzzy(text);
+  const nQuery = normalizeFuzzy(query);
+  const queryWords = nQuery.split(/\s+/).filter(w => w.length > 0);
+  
+  if (queryWords.length === 0) return false;
+  // Każde wpisane słowo musi się znaleźć w tytule/nazwie (niezależnie od kolejności!)
+  return queryWords.every(word => nText.includes(word));
+};
+
 interface SearchBarProps {
   initialQuery?: string;
   className?: string;
@@ -32,7 +74,7 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
   
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [dbCategories, setDbCategories] = useState<any[]>([]);
-  const [speciesList, setSpeciesList] = useState<any[]>([]); // 🔥 NOWOŚĆ: Stan dla gatunków i łaciny
+  const [speciesList, setSpeciesList] = useState<any[]>([]); 
   const [suggestedListings, setSuggestedListings] = useState<any[]>([]); 
   
   const [isSuggestionsOpen, setIsSuggestionsOpen] = useState(false);
@@ -42,7 +84,7 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
   const [selectedParentCategory, setSelectedParentCategory] = useState('');
   const [selectedSubcategory, setSelectedSubcategory] = useState('');
   const [selectedVoivodeship, setSelectedVoivodeship] = useState('Cała Polska');
-  const [locationQuery, setLocationQuery] = useState('');
+  const [selectedCity, setSelectedCity] = useState(''); // Zmienione na kaskadowe
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [selectedCondition, setSelectedCondition] = useState(''); 
@@ -53,13 +95,11 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
 
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  // 🔥 Pobieramy Kategorie ORAZ Gatunki za jednym zamachem
   useEffect(() => {
     const fetchInitialData = async () => {
       const { data: catData } = await supabase.from('categories').select('*').eq('is_active', true).order('name');
       if (catData) setDbCategories(catData);
 
-      // Pobieramy tylko id, name i latin_name, żeby nie obciążać RAM-u telefonu
       const { data: speciesData } = await supabase.from('species').select('id, name, latin_name');
       if (speciesData) setSpeciesList(speciesData);
     };
@@ -86,53 +126,22 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  useEffect(() => {
-    if (isFiltersModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'unset';
-      setIsCatDropdownOpen(false);
-      setIsSubCatDropdownOpen(false);
-      setIsWojDropdownOpen(false);
-    }
-    return () => { document.body.style.overflow = 'unset'; };
-  }, [isFiltersModalOpen]);
-
-  const removeDiacritics = (str: string) => 
-    str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l").replace(/Ł/g, "L");
-
   // -------------------------------------------------------------
-  // 🔥 MÓZG WYSZUKIWARKI: Przeszukiwanie w czasie rzeczywistym
+  // MÓZG WYSZUKIWARKI: Tolerancyjne przeszukiwanie
   // -------------------------------------------------------------
-  const queryLower = searchQuery.toLowerCase().trim();
-  const queryNormalized = removeDiacritics(queryLower);
-
-  // 1. Sprawdzanie kategorii
-  const matchedCategories = dbCategories.filter(c => {
-    const exactMatch = c.name.toLowerCase().includes(queryLower);
-    const normalizedMatch = removeDiacritics(c.name.toLowerCase()).includes(queryNormalized);
-    const aliasMatch = categorySynonyms[c.name] && categorySynonyms[c.name].some(alias => 
-      alias.includes(queryLower) || removeDiacritics(alias).includes(queryNormalized)
-    );
-    return exactMatch || normalizedMatch || aliasMatch;
-  });
+  const matchedCategories = dbCategories.filter(c => 
+    isFuzzyMatch(c.name, searchQuery) || 
+    (categorySynonyms[c.name] && categorySynonyms[c.name].some(alias => isFuzzyMatch(alias, searchQuery)))
+  );
   
   const matchedParents = matchedCategories.filter(c => !c.parent_id).slice(0, 2);
   const matchedSubs = matchedCategories.filter(c => c.parent_id).slice(0, 3);
 
-  // 2. 🔥 Sprawdzanie GATUNKÓW (Polska + Łacina)
-  const matchedSpecies = speciesList.filter(s => {
-    if (queryLower.length < 2) return false;
-    const exactName = s.name.toLowerCase().includes(queryLower);
-    const normName = removeDiacritics(s.name.toLowerCase()).includes(queryNormalized);
-    const exactLatin = s.latin_name && s.latin_name.toLowerCase().includes(queryLower);
-    const normLatin = s.latin_name && removeDiacritics(s.latin_name.toLowerCase()).includes(queryNormalized);
-    return exactName || normName || exactLatin || normLatin;
-  });
+  const matchedSpecies = speciesList.filter(s => 
+    (searchQuery.length >= 2) && (isFuzzyMatch(s.name, searchQuery) || isFuzzyMatch(s.latin_name, searchQuery))
+  );
+  const topMatchedSpecies = matchedSpecies.slice(0, 3); 
 
-  const topMatchedSpecies = matchedSpecies.slice(0, 3); // Wyciągamy top 3 do pokazania w dropdownie
-
-  // 3. Sprawdzanie ogłoszeń w bazie Supabase
   useEffect(() => {
     if (searchQuery.length < 2) {
       setSuggestedListings([]);
@@ -144,23 +153,31 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
     const delayDebounceFn = setTimeout(async () => {
       let query = supabase.from('listings').select('id, title, price, image_url, category').eq('status', 'active').order('ranking_score', { ascending: false }).limit(3);
 
-      const allMatchedCats = [...matchedParents, ...matchedSubs];
-      const topSpeciesIds = matchedSpecies.slice(0, 20).map(s => s.id); // Bierzemy ID znalezionych gatunków
-
-      // Budujemy potężne zapytanie OR
-      let orQueries = [`title.ilike.%${searchQuery}%`];
-
-      // Jeśli wpisana fraza pasuje do kategorii
-      if (allMatchedCats.length > 0) {
-        orQueries.push(...allMatchedCats.map(c => `category.eq."${c.name}"`));
+      let orStrings = [];
+      const words = searchQuery.trim().split(/\s+/).filter(w => w.length > 1);
+      
+      // Szukanie w tytule (każde wpisane słowo musi być w tytule)
+      if (words.length > 0) {
+        const titleAnds = words.map(w => `title.ilike.%${w}%`).join(',');
+        orStrings.push(`and(${titleAnds})`);
       }
 
-      // Jeśli wpisana fraza pasuje do gatunku (np. wpisano "regius")
-      if (topSpeciesIds.length > 0) {
-        orQueries.push(`species_id.in.(${topSpeciesIds.join(',')})`);
+      // Szukanie w kategoriach
+      if (matchedCategories.length > 0) {
+        orStrings.push(`category.in.(${matchedCategories.map(c => `"${c.name}"`).join(',')})`);
       }
 
-      const { data } = await query.or(orQueries.join(','));
+      // Szukanie w Gatunkach (Łacina i Polskie)
+      if (matchedSpecies.length > 0) {
+        const topSpeciesIds = matchedSpecies.slice(0, 20).map(s => `"${s.id}"`);
+        orStrings.push(`species_id.in.(${topSpeciesIds.join(',')})`);
+      }
+
+      if (orStrings.length > 0) {
+        query = query.or(orStrings.join(','));
+      }
+
+      const { data } = await query;
       if (data) setSuggestedListings(data);
       setIsSearchingDB(false);
     }, 300);
@@ -168,10 +185,7 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, dbCategories, speciesList]); 
 
-  // -------------------------------------------------------------
-  // Aplikowanie filtrów i wysyłka do URL
-  // -------------------------------------------------------------
- const applySearch = (newQuery: string, overrideCategory?: string) => {
+  const applySearch = (newQuery: string, overrideCategory?: string) => {
     setIsSuggestionsOpen(false);
     setIsFiltersModalOpen(false);
     
@@ -181,12 +195,11 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
     const finalCategory = overrideCategory || selectedSubcategory || selectedParentCategory;
 
     if (selectedVoivodeship !== 'Cała Polska') params.append('woj', selectedVoivodeship);
-    if (locationQuery) params.append('loc', locationQuery);
+    if (selectedCity && selectedCity !== 'Inne...') params.append('loc', selectedCity);
     if (minPrice) params.append('min', minPrice);
     if (maxPrice) params.append('max', maxPrice);
     if (selectedCondition) params.append('condition', selectedCondition); 
 
-    // 🔥 LOGIKA SEO: Czysty URL dla kategorii, parametry dla zwykłego szukania
     if (finalCategory && (!newQuery || newQuery.toLowerCase() === finalCategory.toLowerCase())) {
       router.push(`/kategoria/${encodeURIComponent(finalCategory.toLowerCase())}?${params.toString()}`);
     } else {
@@ -204,29 +217,18 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
     }
   };
 
-  const isFilterActive = selectedParentCategory || selectedVoivodeship !== 'Cała Polska' || locationQuery || minPrice || maxPrice || selectedCondition;
+  const isFilterActive = selectedParentCategory || selectedVoivodeship !== 'Cała Polska' || selectedCity || minPrice || maxPrice || selectedCondition;
 
   return (
     <div className={`relative w-full ${className}`} ref={suggestionsRef}>
       
-      {/* GŁÓWNY PASEK WYSZUKIWANIA */}
+      {/* GŁÓWNY PASEK */}
       <form onSubmit={handleSearchSubmit} className="relative z-50 flex flex-row items-center bg-white border border-gray-200 rounded-xl p-1 focus-within:border-green-500 transition-all shadow-sm w-full animate-in zoom-in-95 duration-300">
         <div className="flex-1 relative flex items-center bg-transparent rounded-xl px-2 py-0.5">
-          <input 
-            type="text" 
-            placeholder="Szukaj gatunku lub sprzętu..." 
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setIsSuggestionsOpen(true); }}
-            onFocus={() => setIsSuggestionsOpen(true)}
-            className="w-full bg-transparent border-none py-1.5 px-1 outline-none font-bold text-gray-900 placeholder:font-medium placeholder:text-gray-400 text-sm md:text-base"
-          />
+          <input type="text" placeholder="Szukaj gatunku lub sprzętu..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setIsSuggestionsOpen(true); }} onFocus={() => setIsSuggestionsOpen(true)} className="w-full bg-transparent border-none py-1.5 px-1 outline-none font-bold text-gray-900 placeholder:font-medium placeholder:text-gray-400 text-sm md:text-base" />
         </div>
         <div className="w-px h-6 bg-gray-200 mx-1"></div>
-        <button 
-          type="button" 
-          onClick={() => setIsFiltersModalOpen(true)}
-          className="flex items-center gap-1.5 text-gray-500 hover:text-green-600 px-2 py-1.5 md:px-3 md:py-2 rounded-lg font-bold text-sm transition-colors relative"
-        >
+        <button type="button" onClick={() => setIsFiltersModalOpen(true)} className="flex items-center gap-1.5 text-gray-500 hover:text-green-600 px-2 py-1.5 md:px-3 md:py-2 rounded-lg font-bold text-sm transition-colors relative">
           {isFilterActive && <span className="absolute top-1 right-1 md:right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 1 1-3 0m3 0a1.5 1.5 0 1 0-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m-9.75 0h9.75" /></svg>
           <span className="hidden md:block">Filtry</span>
@@ -237,54 +239,35 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
         </button>
       </form>
 
-      {/* DROPDOWN PODPOWIEDZI (Z Łaciną!) */}
+      {/* DROPDOWN PODPOWIEDZI */}
       {isSuggestionsOpen && searchQuery.length >= 2 && (
         <div className="absolute top-full left-0 right-0 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-[0_20px_40px_rgba(0,0,0,0.12)] z-[9999] animate-in fade-in slide-in-from-top-2 overflow-hidden">
           <div className="p-2 max-h-[60vh] overflow-y-auto custom-scrollbar">
             
-            {/* Kategorie */}
             {(matchedParents.length > 0 || matchedSubs.length > 0) && (
               <div className="mb-2">
                 <p className="text-[9px] font-black uppercase text-gray-400 px-3 py-1.5 tracking-widest">Działy i Kategorie</p>
-                {matchedParents.map(cat => (
-                  <button key={cat.id} type="button" onClick={() => applySearch(cat.name, cat.name)} className="w-full text-left flex flex-col px-3 py-2 hover:bg-gray-50 rounded-lg transition group">
-                    <span className="font-bold text-green-600 group-hover:text-green-700 transition text-sm">{cat.name}</span>
-                  </button>
-                ))}
-                {matchedSubs.map(cat => (
-                  <button key={cat.id} type="button" onClick={() => applySearch(cat.name, cat.name)} className="w-full text-left flex flex-col px-3 py-2 hover:bg-gray-50 rounded-lg transition group">
-                    <span className="font-bold text-gray-900 group-hover:text-green-600 transition text-sm">{cat.name}</span>
-                  </button>
-                ))}
+                {matchedParents.map(cat => <button key={cat.id} type="button" onClick={() => applySearch(cat.name, cat.name)} className="w-full text-left flex flex-col px-3 py-2 hover:bg-gray-50 rounded-lg transition group"><span className="font-bold text-green-600 group-hover:text-green-700 transition text-sm">{cat.name}</span></button>)}
+                {matchedSubs.map(cat => <button key={cat.id} type="button" onClick={() => applySearch(cat.name, cat.name)} className="w-full text-left flex flex-col px-3 py-2 hover:bg-gray-50 rounded-lg transition group"><span className="font-bold text-gray-900 group-hover:text-green-600 transition text-sm">{cat.name}</span></button>)}
               </div>
             )}
 
-            {/* 🔥 NOWOŚĆ: Sekcja rozpoznywania GATUNKÓW po polsku i łacinie */}
             {topMatchedSpecies.length > 0 && (
               <div className="mb-2">
                 <p className="text-[9px] font-black uppercase text-blue-400 px-3 py-1.5 tracking-widest flex items-center gap-1"><span>🧬</span> Gatunki</p>
                 {topMatchedSpecies.map(s => (
-                  <button 
-                    key={s.id} 
-                    type="button" 
-                    onClick={() => applySearch(s.name)} 
-                    className="w-full text-left flex flex-col px-3 py-2 hover:bg-blue-50 rounded-lg transition group"
-                  >
+                  <button key={s.id} type="button" onClick={() => applySearch(s.name)} className="w-full text-left flex flex-col px-3 py-2 hover:bg-blue-50 rounded-lg transition group">
                     <span className="font-bold text-gray-900 group-hover:text-blue-700 transition text-sm">{s.name}</span>
-                    {s.latin_name && (
-                      <span className="text-[10px] font-medium text-gray-400 italic truncate w-full group-hover:text-blue-500 transition">{s.latin_name}</span>
-                    )}
+                    {s.latin_name && <span className="text-[10px] font-medium text-gray-400 italic truncate w-full group-hover:text-blue-500 transition">{s.latin_name}</span>}
                   </button>
                 ))}
               </div>
             )}
 
-            {/* Linijka podziału jeśli są ogłoszenia */}
             {((matchedParents.length > 0 || matchedSubs.length > 0) || topMatchedSpecies.length > 0) && suggestedListings.length > 0 && (
               <div className="h-px bg-gray-100 mx-3 my-1"></div>
             )}
 
-            {/* Wyniki Ogłoszeń */}
             <div className="mt-1">
                <p className="text-[9px] font-black uppercase text-amber-500 px-3 py-1.5 tracking-widest flex items-center gap-1"><span>★</span> Najlepsze trafienia</p>
                {isSearchingDB ? (
@@ -309,14 +292,10 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
         </div>
       )}
 
-      {/* --------------------------------------------------------- */}
-      {/* MODAL FILTRÓW  */}
-      {/* --------------------------------------------------------- */}
+      {/* MODAL FILTRÓW */}
       {isFiltersModalOpen && (
         <div className="fixed top-0 left-0 w-full h-[100dvh] z-[99999] flex items-end sm:items-center justify-center">
-          
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onClick={() => setIsFiltersModalOpen(false)}></div>
-
           <div className="relative bg-white w-full sm:w-[500px] rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[90dvh] sm:max-h-[85dvh] animate-in slide-in-from-bottom-full sm:zoom-in-95 duration-300">
             
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-white rounded-t-3xl sm:rounded-t-3xl shrink-0">
@@ -328,31 +307,23 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
 
             <div className="p-6 flex-1 overflow-y-auto space-y-8 custom-scrollbar bg-white">
               
-              {/* --- KATEGORIE --- */}
               <div className="space-y-4">
-                <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-xl">🐍</span> Co Cię interesuje?
-                </h4>
-                
+                <h4 className="font-bold text-gray-900 flex items-center gap-2"><span className="text-xl">🐍</span> Co Cię interesuje?</h4>
                 <div className="flex flex-col border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
                   <button type="button" onClick={() => setIsCatDropdownOpen(!isCatDropdownOpen)} className="w-full flex justify-between items-center px-4 py-3.5 bg-gray-50 hover:bg-gray-100 transition">
                     <span className="font-bold text-gray-900">{selectedParentCategory || 'Wszystkie działy'}</span>
                     <svg className={`w-4 h-4 text-gray-500 transform transition-transform duration-300 ${isCatDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
                   </button>
-                  
                   {isCatDropdownOpen && (
                     <div className="max-h-60 overflow-y-auto bg-white border-t border-gray-100 flex flex-col animate-in slide-in-from-top-2">
                       <button onClick={() => { setSelectedParentCategory(''); setIsCatDropdownOpen(false); setSelectedSubcategory(''); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-700">Wszystkie działy</button>
-                      
                       {animalCategories.length > 0 && <div className="px-4 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-y border-gray-100">🦎 Zwierzęta</div>}
                       {animalCategories.map(c => <button key={c.id} onClick={() => { setSelectedParentCategory(c.name); setIsCatDropdownOpen(false); setSelectedSubcategory(''); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-900 border-b border-gray-50 last:border-0">{c.name}</button>)}
-                      
                       {hardwareCategories.length > 0 && <div className="px-4 py-2 text-[10px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 border-y border-gray-100">📦 Sprzęt i Pokarm</div>}
                       {hardwareCategories.map(c => <button key={c.id} onClick={() => { setSelectedParentCategory(c.name); setIsCatDropdownOpen(false); setSelectedSubcategory(''); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-900 border-b border-gray-50 last:border-0">{c.name}</button>)}
                     </div>
                   )}
                 </div>
-
                 {selectedParentId && childCategories.filter(c => c.parent_id === selectedParentId).length > 0 && (
                   <div className="flex flex-col border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white animate-in slide-in-from-top-2">
                     <button type="button" onClick={() => setIsSubCatDropdownOpen(!isSubCatDropdownOpen)} className="w-full flex justify-between items-center px-4 py-3.5 bg-gray-50 hover:bg-gray-100 transition">
@@ -369,31 +340,14 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
                 )}
               </div>
 
-              {/* --- STAN PRZEDMIOTU --- */}
               {isHardwareSelected && (
                 <>
                   <div className="h-px w-full bg-gray-100"></div>
                   <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                      <span className="text-xl">🏷️</span> Stan przedmiotu
-                    </h4>
+                    <h4 className="font-bold text-gray-900 flex items-center gap-2"><span className="text-xl">🏷️</span> Stan przedmiotu</h4>
                     <div className="flex flex-wrap gap-2">
-                      {[
-                        { value: '', label: 'Wszystkie' },
-                        { value: 'new', label: 'Nowy' },
-                        { value: 'used', label: 'Używany' },
-                        { value: 'damaged', label: 'Uszkodzony' }
-                      ].map((cond) => (
-                        <button
-                          key={cond.value}
-                          type="button"
-                          onClick={() => setSelectedCondition(cond.value)}
-                          className={`px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${
-                            selectedCondition === cond.value
-                              ? 'bg-black text-white border-black shadow-md'
-                              : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                          }`}
-                        >
+                      {[{ value: '', label: 'Wszystkie' }, { value: 'new', label: 'Nowy' }, { value: 'used', label: 'Używany' }, { value: 'damaged', label: 'Uszkodzony' }].map((cond) => (
+                        <button key={cond.value} type="button" onClick={() => setSelectedCondition(cond.value)} className={`px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${selectedCondition === cond.value ? 'bg-black text-white border-black shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                           {cond.label}
                         </button>
                       ))}
@@ -404,11 +358,9 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
 
               <div className="h-px w-full bg-gray-100"></div>
 
-              {/* --- LOKALIZACJA --- */}
+              {/* LOKALIZACJA - KASKADOWA */}
               <div className="space-y-4">
-                <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-xl">📍</span> Lokalizacja
-                </h4>
+                <h4 className="font-bold text-gray-900 flex items-center gap-2"><span className="text-xl">📍</span> Lokalizacja</h4>
                 
                 <div className="flex flex-col border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
                   <button type="button" onClick={() => setIsWojDropdownOpen(!isWojDropdownOpen)} className="w-full flex justify-between items-center px-4 py-3.5 bg-gray-50 hover:bg-gray-100 transition">
@@ -417,23 +369,33 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
                   </button>
                   {isWojDropdownOpen && (
                     <div className="max-h-48 overflow-y-auto bg-white border-t border-gray-100 flex flex-col animate-in slide-in-from-top-2">
-                      {POLISH_VOIVODESHIPS.map(woj => <button key={woj} onClick={() => { setSelectedVoivodeship(woj); setIsWojDropdownOpen(false); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-900 border-b border-gray-50 last:border-0">{woj}</button>)}
+                      <button onClick={() => { setSelectedVoivodeship('Cała Polska'); setSelectedCity(''); setIsWojDropdownOpen(false); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-900 border-b border-gray-50">Cała Polska</button>
+                      {POLISH_VOIVODESHIPS.map(woj => <button key={woj} onClick={() => { setSelectedVoivodeship(woj); setSelectedCity(''); setIsWojDropdownOpen(false); }} className="text-left px-4 py-3 hover:bg-green-50 font-bold text-sm text-gray-900 border-b border-gray-50 last:border-0">{woj}</button>)}
                     </div>
                   )}
                 </div>
 
-                <div>
-                  <input type="text" placeholder="Wpisz miasto (np. Poznań)" value={locationQuery} onChange={(e) => setLocationQuery(e.target.value)} className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 block p-4 outline-none font-bold placeholder:font-medium placeholder:text-gray-400 shadow-sm transition-all" />
-                </div>
+                {selectedVoivodeship !== 'Cała Polska' && (
+                  <div className="relative animate-in slide-in-from-top-2">
+                    <select 
+                      value={selectedCity}
+                      onChange={(e) => setSelectedCity(e.target.value)}
+                      className="w-full appearance-none bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 block pl-4 pr-10 py-3.5 outline-none font-bold cursor-pointer transition-all shadow-sm hover:bg-gray-100"
+                    >
+                      <option value="">Wszystkie miasta ({selectedVoivodeship})</option>
+                      {CITIES_BY_VOIVODESHIP[selectedVoivodeship]?.filter(c => c !== 'Inne...').map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-4 text-gray-400">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="h-px w-full bg-gray-100"></div>
 
-              {/* --- CENA --- */}
               <div className="space-y-4">
-                <h4 className="font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-xl">💵</span> Cena (PLN)
-                </h4>
+                <h4 className="font-bold text-gray-900 flex items-center gap-2"><span className="text-xl">💵</span> Cena (PLN)</h4>
                 <div className="flex items-center gap-4">
                   <div className="flex-1 relative">
                     <input type="number" placeholder="Od" min="0" value={minPrice} onChange={(e) => setMinPrice(e.target.value)} className="w-full bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-green-500/20 focus:border-green-500 block p-4 pl-5 outline-none font-bold placeholder:font-medium placeholder:text-gray-400 shadow-sm transition-all" />
@@ -450,21 +412,10 @@ export default function SearchBar({ initialQuery = '', className = '' }: SearchB
             </div>
 
             <div className="p-4 border-t border-gray-100 bg-white shrink-0 flex gap-3 pb-6 sm:pb-4 rounded-b-3xl">
-              <button 
-                onClick={() => {
-                  setSelectedParentCategory(''); setSelectedSubcategory(''); setSelectedVoivodeship('Cała Polska');
-                  setLocationQuery(''); setMinPrice(''); setMaxPrice(''); setSelectedCondition('');
-                }}
-                className="px-5 py-4 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl font-black text-sm hover:bg-gray-100 transition-colors shadow-sm"
-              >
+              <button onClick={() => { setSelectedParentCategory(''); setSelectedSubcategory(''); setSelectedVoivodeship('Cała Polska'); setSelectedCity(''); setMinPrice(''); setMaxPrice(''); setSelectedCondition(''); }} className="px-5 py-4 bg-gray-50 border border-gray-200 text-gray-600 rounded-xl font-black text-sm hover:bg-gray-100 transition-colors shadow-sm">
                 Wyczyść
               </button>
-              
-              {/* ZMIANA TUTAJ: Tylko zamykamy modal, filtry zostają w pamięci! */}
-              <button 
-                onClick={() => setIsFiltersModalOpen(false)} 
-                className="flex-1 bg-black text-white py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition-colors shadow-xl"
-              >
+              <button onClick={() => setIsFiltersModalOpen(false)} className="flex-1 bg-black text-white py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition-colors shadow-xl">
                 Zapisz filtry
               </button>
             </div>

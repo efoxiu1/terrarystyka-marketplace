@@ -13,6 +13,7 @@ export default function MojeKonto() {
   const [user, setUser] = useState<any>(null);
   
   // 1. Profil i Ustawienia
+  const [isEditingProfile, setIsEditingProfile] = useState(false); // 🔥 NOWOŚĆ: Tryb edycji
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [organization, setOrganization] = useState('');
@@ -64,7 +65,7 @@ export default function MojeKonto() {
 
     setUser(currentUser);
 
-    // 1. POBIERAMY PROFIL (Bez limitów, same dane tekstowe)
+    // 1. POBIERAMY PROFIL
     let { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
@@ -94,7 +95,7 @@ export default function MojeKonto() {
       setIsBanned(profile.is_banned || false);
       setBanReason(profile.ban_reason || '');
       
-      // 🎓 2. NOWA LOGIKA: LICZENIE LIMITÓW Z TABELI PAKIETÓW
+      // 2. LICZENIE LIMITÓW
       const BASE_LIMIT = 2;
       const now = new Date().toISOString();
       
@@ -102,7 +103,7 @@ export default function MojeKonto() {
         .from('purchased_packages')
         .select('slots_added')
         .eq('user_id', currentUser.id)
-        .gt('expires_at', now); // Bierzemy tylko aktywne
+        .gt('expires_at', now); 
 
       let extraSlots = 0;
       if (packages) {
@@ -123,10 +124,8 @@ export default function MojeKonto() {
         
         const activeAds = ads.filter(ad => ad.status === 'active');
         
-        // Ustawiamy nowy, dynamicznie policzony limit
         setLimitStats({ current: activeAds.length, max: dynamicMaxListings });
 
-        // Jeśli ktoś ma więcej aktywnych niż pozwala limit -> ODPALAMY ZŁOTĄ KLATKĘ
         if (activeAds.length > dynamicMaxListings) {
           setShowDowngradeModal(true);
           setSelectedToKeep(activeAds.slice(0, dynamicMaxListings).map((l: any) => l.id));
@@ -157,11 +156,13 @@ export default function MojeKonto() {
       organization, 
       avatar_url: avatarUrl, 
       store_address: storeAddress 
-      // USUNIĘTO SOCIALE - Edytuje je tylko admin!
     }).eq('id', user.id);
     
-    if (error) alert("Błąd zapisu: " + error.message);
-    else alert("Profil zaktualizowany pomyślnie!");
+    if (error) {
+      alert("Błąd zapisu: " + error.message);
+    } else {
+      setIsEditingProfile(false); // Zamykamy tryb edycji po zapisie
+    }
     setUploading(false);
   };
 
@@ -178,12 +179,23 @@ export default function MojeKonto() {
     setUploading(false);
   };
 
-  // --- FUNKCJE OBSŁUGI OGŁOSZEŃ ---
+  // --- 🔥 FUNKCJE OBSŁUGI OGŁOSZEŃ (OPTYMISTYCZNE AKTUALIZACJE) 🔥 ---
   const handleDelete = async (adId: string) => {
     if (!window.confirm("Czy na pewno chcesz usunąć to ogłoszenie? Tej operacji nie można cofnąć.")) return;
+    
+    // Optymistyczne usunięcie z UI, żeby użytkownik nie czekał
+    const adToDelete = myAds.find(a => a.id === adId);
+    setMyAds(prev => prev.filter(item => item.id !== adId));
+    if (adToDelete?.status === 'active') {
+      setLimitStats(prev => ({ ...prev, current: prev.current - 1 }));
+    }
+
+    // Wysyłka w tle
     const { error } = await supabase.from('listings').delete().eq('id', adId);
-    if (error) alert("Błąd usuwania: " + error.message);
-    else fetchData(); 
+    if (error) {
+      alert("Błąd usuwania: " + error.message);
+      fetchData(); // W razie błędu przywracamy stan z serwera
+    }
   };
 
   const toggleListingStatus = async (ad: any) => {
@@ -195,11 +207,24 @@ export default function MojeKonto() {
         alert(`Osiągnąłeś limit! Masz już ${limitStats.current}/${limitStats.max} aktywnych ogłoszeń.`);
         return;
       }
+      
+      // Optymistyczna zmiana UI
+      setMyAds(prev => prev.map(item => item.id === ad.id ? { ...item, status: 'active' } : item));
+      setLimitStats(prev => ({ ...prev, current: prev.current + 1 }));
+
+      // Zapytanie w tle
       await supabase.from('listings').update({ status: 'active' }).eq('id', ad.id);
+      
     } else if (isCurrentlyActive) {
+      
+      // Optymistyczna zmiana UI
+      setMyAds(prev => prev.map(item => item.id === ad.id ? { ...item, status: 'inactive' } : item));
+      setLimitStats(prev => ({ ...prev, current: prev.current - 1 }));
+
+      // Zapytanie w tle
       await supabase.from('listings').update({ status: 'inactive' }).eq('id', ad.id);
     }
-    fetchData(); 
+    // 🔥 USUNĘŁEM fetchData()! Strona już nie będzie "mrugać" przy kliknięciu.
   };
 
   // --- FUNKCJE ZŁOTEJ KLATKI ---
@@ -222,6 +247,10 @@ export default function MojeKonto() {
       .map(l => l.id);
 
     if (toDeactivate.length > 0) {
+      // Optymistyczna zmiana
+      setMyAds(prev => prev.map(ad => toDeactivate.includes(ad.id) ? { ...ad, status: 'inactive' } : ad));
+      setLimitStats(prev => ({ ...prev, current: selectedToKeep.length }));
+
       const { error } = await supabase
         .from('listings')
         .update({ status: 'inactive' })
@@ -230,7 +259,6 @@ export default function MojeKonto() {
       if (error) return alert('Błąd: ' + error.message);
     }
     setShowDowngradeModal(false);
-    fetchData(); 
   };
 
   if (loading) return <div className="p-20 text-center font-bold text-gray-400">Ładowanie Twojego panelu...</div>;
@@ -258,25 +286,75 @@ export default function MojeKonto() {
         </div>
       )}
       
+      {/* --- 🔥 SEKCJA PROFILU (TRYB PODGLĄDU I EDYCJI) 🔥 --- */}
       <section className="bg-white rounded-3xl shadow-sm border p-8 mb-12">
-        <h2 className="text-2xl font-black mb-6 flex items-center gap-2"><span>👤</span> Twój Profil Publiczny</h2>
+        <div className="flex flex-col md:flex-row justify-between md:items-center mb-8 gap-4 border-b border-gray-100 pb-4">
+          <h2 className="text-2xl font-black flex items-center gap-2"><span>👤</span> Twój Profil Publiczny</h2>
+          {!isEditingProfile && (
+            <button onClick={() => setIsEditingProfile(true)} className="bg-gray-100 text-gray-700 px-5 py-2 rounded-xl font-bold hover:bg-gray-200 transition">
+              ✏️ Edytuj profil
+            </button>
+          )}
+        </div>
+
         <form onSubmit={handleUpdateProfile} className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="flex flex-col items-center gap-4">
-            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-green-100 relative group cursor-pointer">
+            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-green-100 relative group cursor-pointer shadow-sm">
               {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl text-gray-300">🦎</div>}
-              <label className="absolute inset-0 bg-black/50 text-white text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition"><input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} />Zmień</label>
+              {isEditingProfile && (
+                <label className="absolute inset-0 bg-black/50 text-white text-xs font-bold flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
+                  <input type="file" className="hidden" accept="image/*" onChange={handleAvatarUpload} />Zmień
+                </label>
+              )}
             </div>
           </div>
-          <div className="md:col-span-2 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-xs font-black text-gray-500 mb-1">Nick</label><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
-              <div><label className="block text-xs font-black text-gray-500 mb-1">Hodowla</label><input type="text" value={organization} onChange={e => setOrganization(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
-              <div className="md:col-span-2"><label className="block text-xs font-black text-gray-500 mb-1">Adres sklepu</label><input type="text" value={storeAddress} onChange={e => setStoreAddress(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50" /></div>
-            </div>
-            <div><label className="block text-xs font-black text-gray-500 mb-1">Bio</label><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 h-24 resize-none" /></div>
           
-            <div className="md:col-span-2 mt-4 pt-4 border-t border-gray-100">
-              <div className="flex justify-between items-center mb-6">
+          <div className="md:col-span-2 space-y-6">
+            
+            {/* WIDOK: EDYCJA vs TYLKO DO ODCZYTU */}
+            {isEditingProfile ? (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-black text-gray-500 mb-1">Nick</label><input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-black" /></div>
+                  <div><label className="block text-xs font-black text-gray-500 mb-1">Hodowla</label><input type="text" value={organization} onChange={e => setOrganization(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-black" /></div>
+                  <div className="md:col-span-2"><label className="block text-xs font-black text-gray-500 mb-1">Adres sklepu</label><input type="text" value={storeAddress} onChange={e => setStoreAddress(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 outline-none focus:ring-2 focus:ring-black" /></div>
+                </div>
+                <div><label className="block text-xs font-black text-gray-500 mb-1">Bio</label><textarea value={bio} onChange={e => setBio(e.target.value)} className="w-full border p-3 rounded-xl bg-gray-50 h-24 resize-none outline-none focus:ring-2 focus:ring-black" /></div>
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-6 pt-4">
+                  <button type="button" onClick={() => setIsEditingProfile(false)} className="bg-gray-100 text-gray-600 px-6 py-4 rounded-xl font-bold hover:bg-gray-200 transition">Anuluj</button>
+                  <button type="submit" disabled={uploading} className="bg-black text-white px-8 py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition shadow-md disabled:opacity-50 flex-1">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-y-6 gap-x-4">
+                  <div>
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Nick</p>
+                    <p className="font-bold text-gray-900 text-lg">{username || 'Brak'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Hodowla</p>
+                    <p className="font-bold text-gray-900 text-lg">{organization || 'Brak'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Adres sklepu</p>
+                    <p className="font-medium text-gray-900">{storeAddress || 'Nie podano'}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">Bio</p>
+                    <p className="text-gray-700 italic">{bio || 'Brak opisu...'}</p>
+                  </div>
+                </div>
+                
+                <Link href={`/sklep/${user?.id}`} target="_blank" className="inline-flex items-center gap-2 border-2 border-green-600 text-green-600 px-6 py-2.5 rounded-xl font-bold hover:bg-green-50 transition w-full md:w-auto justify-center">
+                  👁️ Zobacz sklep publiczny
+                </Link>
+              </div>
+            )}
+        
+            <div className="mt-8 pt-8 border-t border-gray-100">
+              <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
                 <div>
                   <h3 className="text-sm font-black text-gray-900">Oficjalne Social Media</h3>
                   <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Status weryfikacji tożsamości</p>
@@ -284,7 +362,7 @@ export default function MojeKonto() {
                 <button 
                   type="button" 
                   onClick={() => setShowVerificationModal(true)} 
-                  className="text-xs bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl border border-blue-200 hover:bg-blue-600 hover:text-white transition flex items-center gap-2 shadow-sm"
+                  className="text-xs bg-blue-50 text-blue-700 font-bold px-4 py-2.5 rounded-xl border border-blue-200 hover:bg-blue-600 hover:text-white transition flex items-center justify-center gap-2 shadow-sm"
                 >
                   🛡️ { (facebookUrl || instagramUrl || youtubeUrl) ? 'Aktualizuj weryfikację' : 'Zweryfikuj profil' }
                 </button>
@@ -296,9 +374,7 @@ export default function MojeKonto() {
                     <span className="text-blue-600">📘</span> Facebook
                   </p>
                   {facebookUrl ? (
-                    <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-blue-700 hover:underline truncate block">
-                      {facebookUrl.replace('https://', '')}
-                    </a>
+                    <a href={facebookUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-blue-700 hover:underline truncate block">{facebookUrl.replace('https://', '')}</a>
                   ) : (
                     <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
                   )}
@@ -309,9 +385,7 @@ export default function MojeKonto() {
                     <span className="text-pink-600">📸</span> Instagram
                   </p>
                   {instagramUrl ? (
-                    <a href={instagramUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-pink-700 hover:underline truncate block">
-                      {instagramUrl.replace('https://', '')}
-                    </a>
+                    <a href={instagramUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-pink-700 hover:underline truncate block">{instagramUrl.replace('https://', '')}</a>
                   ) : (
                     <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
                   )}
@@ -322,18 +396,14 @@ export default function MojeKonto() {
                     <span className="text-red-600">📺</span> YouTube
                   </p>
                   {youtubeUrl ? (
-                    <a href={youtubeUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 hover:underline truncate block">
-                      {youtubeUrl.replace('https://', '')}
-                    </a>
+                    <a href={youtubeUrl} target="_blank" rel="noreferrer" className="text-sm font-bold text-red-700 hover:underline truncate block">{youtubeUrl.replace('https://', '')}</a>
                   ) : (
                     <p className="text-sm font-medium text-gray-300 italic">Niepodpięty</p>
                   )}
                 </div>
               </div>
             </div>
-
-            <button disabled={uploading} className="bg-black text-white px-8 py-4 rounded-xl font-black text-lg hover:bg-gray-800 transition shadow-md disabled:opacity-50 w-full md:w-auto mt-4">{uploading ? 'Zapisywanie...' : 'Zapisz zmiany profilu'}</button>
-            <Link href={`/sklep/${user?.id}`} target="_blank" className="mt-4 block text-center border-2 border-green-600 text-green-600 px-8 py-3 rounded-xl font-bold hover:bg-green-50 transition">👁️ Zobacz sklep</Link>
+            
           </div>
         </form>
       </section>

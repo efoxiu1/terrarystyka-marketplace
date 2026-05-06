@@ -3,30 +3,30 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
-import SearchBar from '../components/SearchBar'; // <-- Upewnij się, że ścieżka do komponentu jest poprawna!
 
 // --- KARTA PREMIUM (Zoptymalizowana pod ciemne tło) ---
 const FeaturedAdCard = ({ item }: { item: any }) => (
-  <Link href={`/ogloszenie/${item.id}`} className="block w-56 md:w-64 shrink-0 snap-start group cursor-pointer bg-white rounded-[2rem] p-3 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 hover:-translate-y-2 transition-all duration-400 border border-transparent hover:border-amber-200">
-    <div className="w-full aspect-[4/3] bg-gray-50 rounded-2xl overflow-hidden mb-4 relative">
+  <Link href={`/ogloszenie/${item.id}`} className="block w-56 md:w-64 shrink-0 snap-start group cursor-pointer bg-white/5 backdrop-blur-xl rounded-[2rem] p-3 shadow-2xl hover:bg-white/10 hover:-translate-y-2 transition-all duration-500 border border-white/10 hover:border-amber-400/50 relative overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/0 via-amber-500/0 to-amber-500/0 group-hover:to-amber-500/10 transition-colors duration-500"></div>
+    
+    <div className="w-full aspect-[4/3] bg-gray-900 rounded-2xl overflow-hidden mb-4 relative border border-white/5">
       {item.image_url ? (
-        <img src={item.image_url} alt={item.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out" />
+        <img src={item.image_url} alt={item.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out opacity-90 group-hover:opacity-100" />
       ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+        <div className="w-full h-full flex flex-col items-center justify-center text-gray-700">
            <span className="text-3xl">📸</span>
         </div>
       )}
-      {/* Ekskluzywny Tag Promowania */}
-      <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1.5 z-10 border border-white/10">
-        <span className="text-amber-400 text-sm leading-none">★</span> Premium
+      <div className="absolute top-3 left-3 bg-black/80 backdrop-blur-md text-white text-[10px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1.5 z-10 border border-amber-500/30">
+        <span className="text-amber-400 text-sm leading-none animate-pulse">★</span> Premium
       </div>
     </div>
-    <div className="px-2 pb-1">
-      <p className="text-[10px] font-black text-green-600 uppercase truncate mb-1 tracking-widest">{item.category}</p>
-      <h4 className="text-base font-bold text-gray-900 leading-snug mb-3 line-clamp-2">{item.title}</h4>
+    <div className="px-2 pb-1 relative z-10">
+      <p className="text-[10px] font-black text-amber-400 uppercase truncate mb-1 tracking-widest">{item.category}</p>
+      <h4 className="text-base font-bold text-white leading-snug mb-3 line-clamp-2 group-hover:text-amber-100 transition-colors">{item.title}</h4>
       <div className="flex justify-between items-end mt-auto">
-        <p className="text-xl font-black text-gray-900">{item.price} <span className="text-xs font-bold text-gray-400">PLN</span></p>
-        <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-amber-400 group-hover:text-black transition-colors text-gray-400">
+        <p className="text-xl font-black text-white">{item.price} <span className="text-xs font-bold text-gray-400">PLN</span></p>
+        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-amber-400 group-hover:text-black transition-all duration-300 text-white">
           <span className="text-sm font-bold transform -rotate-45">➔</span>
         </div>
       </div>
@@ -34,17 +34,51 @@ const FeaturedAdCard = ({ item }: { item: any }) => (
   </Link>
 );
 
-// Eleganckie kategorie z tłami
-const categoryStyles: Record<string, { icon: string, bg: string, color: string }> = {
-  'Węże': { icon: '🐍', bg: 'bg-emerald-50', color: 'text-emerald-600' },
-  'Jaszczurki': { icon: '🦎', bg: 'bg-lime-50', color: 'text-lime-600' },
-  'Pająki': { icon: '🕷️', bg: 'bg-stone-50', color: 'text-stone-600' },
-  'Żaby i Płazy': { icon: '🐸', bg: 'bg-teal-50', color: 'text-teal-600' },
-  'Owady': { icon: '🦗', bg: 'bg-amber-50', color: 'text-amber-600' },
-  'Akcesoria': { icon: '📦', bg: 'bg-blue-50', color: 'text-blue-600' },
-  'Terraria': { icon: '🏜️', bg: 'bg-orange-50', color: 'text-orange-600' },
-  'Pokarm': { icon: '🍎', bg: 'bg-red-50', color: 'text-red-600' },
+const categoryStyles: Record<string, { icon: string, bg: string, color: string, border: string }> = {
+  'Węże': { icon: '🐍', bg: 'bg-emerald-50', color: 'text-emerald-600', border: 'hover:border-emerald-200' },
+  'Jaszczurki': { icon: '🦎', bg: 'bg-lime-50', color: 'text-lime-600', border: 'hover:border-lime-200' },
+  'Pająki': { icon: '🕷️', bg: 'bg-stone-50', color: 'text-stone-600', border: 'hover:border-stone-200' },
+  'Żaby i Płazy': { icon: '🐸', bg: 'bg-teal-50', color: 'text-teal-600', border: 'hover:border-teal-200' },
+  'Owady': { icon: '🦗', bg: 'bg-amber-50', color: 'text-amber-600', border: 'hover:border-amber-200' },
+  'Akcesoria': { icon: '📦', bg: 'bg-blue-50', color: 'text-blue-600', border: 'hover:border-blue-200' },
+  'Terraria': { icon: '🏜️', bg: 'bg-orange-50', color: 'text-orange-600', border: 'hover:border-orange-200' },
+  'Pokarm': { icon: '🍎', bg: 'bg-red-50', color: 'text-red-600', border: 'hover:border-red-200' },
 };
+
+// 🔥 FUNKCJA WAŻONEGO LOSOWANIA (Weighted Random Sampling) 🔥
+// Im wyższy ranking_score tym większa waga (większa szansa na wylosowanie),
+// ale słabsze ogłoszenia (z niskim rankingiem) nadal mają szansę!
+// 🔥 NAPRAWIONA FUNKCJA WAŻONEGO LOSOWANIA 🔥
+// Teraz losuje i miesza ZAWSZE, nawet jeśli masz w bazie tylko 3 ogłoszenia!
+const getWeightedRandomSample = (items: any[], sampleSize: number) => {
+  const actualSampleSize = Math.min(items.length, sampleSize);
+  if (actualSampleSize === 0) return [];
+
+  // Przypisujemy wagi (min. 1, max = ranking_score)
+  let pool = items.map(item => ({
+    ...item,
+    weight: Math.max(1, item.ranking_score || 0) 
+  }));
+
+  const selected = [];
+  
+  // Pętla kręci się tyle razy, ile mamy pobrać ogłoszeń
+  for (let i = 0; i < actualSampleSize; i++) {
+    const totalWeight = pool.reduce((sum, item) => sum + item.weight, 0);
+    let random = Math.random() * totalWeight;
+    
+    for (let j = 0; j < pool.length; j++) {
+      random -= pool[j].weight;
+      if (random <= 0) {
+        selected.push(pool[j]);
+        pool.splice(j, 1); // Usuwamy, żeby nie wylosować tego samego 2 razy
+        break;
+      }
+    }
+  }
+  return selected;
+};
+
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -52,9 +86,12 @@ export default function Home() {
   const [recentListings, setRecentListings] = useState<any[]>([]);
   const [featuredListings, setFeaturedListings] = useState<any[]>([]);
   const [mainCategories, setMainCategories] = useState<any[]>([]);
+  
+  const [randomStrips, setRandomStrips] = useState<{category: string, listings: any[]}[]>([]);
 
   useEffect(() => {
     const fetchHomeData = async () => {
+      // 1. Kategorie
       const { data: cats } = await supabase
         .from('categories')
         .select('*')
@@ -64,17 +101,55 @@ export default function Home() {
       
       if (cats) setMainCategories(cats);
 
+      // 2. Pobieramy SZEROKĄ pulę aktywnych ogłoszeń
+      // Limit 300 wystarczy żeby losowanie było szybkie i różnorodne
       const { data: ads } = await supabase
         .from('listings')
         .select('*, seller:profiles!fk_seller_profile(username, store_address, is_verified_seller), species(latin_name)')
         .eq('status', 'active')
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(300);
 
-      if (ads) {
-        setRecentListings(ads);
+      if (ads && ads.length > 0) {
+        
+        // --- A: OFERTY PREMIUM (Górny pasek ciemny) ---
+        // Wybieramy tylko te od zweryfikowanych sprzedawców, potem sortujemy po rankingu na twardo
         const verifiedAds = ads.filter(ad => ad.seller?.is_verified_seller);
-        setFeaturedListings(verifiedAds.length > 0 ? verifiedAds : ads.slice(0, 6)); 
+        const topPremium = verifiedAds.sort((a, b) => (b.ranking_score || 0) - (a.ranking_score || 0)).slice(0, 10);
+        // Fallback jeśli nie ma zweryfikowanych to bierzemy po prostu najlepsze
+        setFeaturedListings(topPremium.length > 0 ? topPremium : ads.sort((a, b) => (b.ranking_score || 0) - (a.ranking_score || 0)).slice(0, 8));
+
+        // --- B: DOLNA SIATKA "Świeżo dodane" (ALE WAŻONE) ---
+        // Zamiast tylko najnowszych, pokazujemy w siatce ważone ogłoszenia!
+        // Wybieramy 20 ogłoszeń z dużą szansą na te z wysokim rankingiem
+        setRecentListings(getWeightedRandomSample(ads, 20));
+
+        // --- C: ALGORYTM: LOSOWE PASKI KATEGORII (TEŻ WAŻONE) ---
+       // --- C: ALGORYTM: LOSOWE PASKI KATEGORII (TEŻ WAŻONE) ---
+        const groupedByCategory: Record<string, any[]> = {};
+        ads.forEach(ad => {
+          if (!groupedByCategory[ad.category]) groupedByCategory[ad.category] = [];
+          groupedByCategory[ad.category].push(ad);
+        });
+
+        // Bierzemy kategorie, gdzie są chociaż 3 ogłoszenia
+        let validCategories = Object.keys(groupedByCategory).filter(cat => groupedByCategory[cat].length >= 3);
+        
+        // 🔥 ZABEZPIECZENIE: Jeśli masz za mało ogłoszeń, bierzemy JAKIEKOLWIEK kategorie, żeby paski zawsze były!
+        if (validCategories.length < 2) {
+          validCategories = Object.keys(groupedByCategory);
+        }
+        
+        // Losujemy 2 działy
+        const shuffledCats = validCategories.sort(() => 0.5 - Math.random()).slice(0, 2);
+
+        // Tworzymy paski z ważonym losowaniem
+        const generatedStrips = shuffledCats.map(cat => ({
+          category: cat,
+          listings: getWeightedRandomSample(groupedByCategory[cat], 8)
+        }));
+
+        setRandomStrips(generatedStrips);
       }
       
       setLoading(false);
@@ -95,88 +170,90 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#F8FAFC] pb-24 overflow-x-hidden font-sans">
       
-     {/* --- HERO SECTION --- */}
-      {/* USUNĄŁEM overflow-hidden z głównego tagu section! */}
-      <section className="bg-white pt-20 pb-32 px-4 md:px-6 text-center relative rounded-b-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.02)] z-30">
-        
-        {/* Zamiast tego, włożyłem ten świecący background do osobnego, przyciętego kontenera (klatka na tło) */}
+      {/* --- HERO SECTION --- */}
+      <section className="bg-white pt-24 pb-36 px-4 md:px-6 text-center relative rounded-b-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.02)] z-30">
         <div className="absolute inset-0 overflow-hidden rounded-b-[3rem] pointer-events-none -z-10">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-green-50 rounded-full blur-3xl opacity-50"></div>
+          <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-green-200/40 rounded-full blur-[100px] mix-blend-multiply opacity-70 animate-pulse"></div>
+          <div className="absolute top-[20%] right-[10%] w-[600px] h-[600px] bg-emerald-100/40 rounded-full blur-[120px] mix-blend-multiply opacity-70"></div>
+          <div className="absolute bottom-[-20%] left-[40%] w-[700px] h-[400px] bg-teal-50/50 rounded-full blur-[100px] mix-blend-multiply opacity-50"></div>
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMiIgY3k9IjIiIHI9IjEiIGZpbGw9InJnYmEoMCwwLDAsMC4wMykiLz48L3N2Zz4=')] [mask-image:linear-gradient(to_bottom,white,transparent)]"></div>
         </div>
+
         <div className="relative z-10 max-w-4xl mx-auto flex flex-col items-center">
-          
-          <div className="mb-6 inline-flex items-center gap-2 bg-green-50 border border-green-100 px-4 py-1.5 rounded-full">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            <span className="text-xs font-black text-green-800 uppercase tracking-widest">Ponad {recentListings.length * 10}+ ogłoszeń</span>
+          <div className="mb-8 inline-flex items-center gap-2 bg-white/80 backdrop-blur-md border border-gray-100 px-4 py-2 rounded-full shadow-sm hover:shadow-md transition-shadow">
+            <span className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+            </span>
+            <span className="text-xs font-black text-gray-800 uppercase tracking-widest">Aktywna społeczność</span>
           </div>
 
-          <h1 className="text-5xl md:text-[5.5rem] font-black mb-6 tracking-tighter leading-[1.1] text-gray-900">
+          <h1 className="text-5xl md:text-[6rem] font-black mb-6 tracking-tighter leading-[1.05] text-gray-900 drop-shadow-sm">
             Egzotyka <br className="md:hidden" />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-500 to-emerald-700">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-500 via-emerald-600 to-teal-700">
               na wyciągnięcie ręki.
             </span>
           </h1>
-          <p className="text-lg md:text-xl text-gray-500 font-medium mb-12 max-w-2xl leading-relaxed">
-            Odkrywaj fascynujący świat terrarystyki. Kupuj i sprzedawaj bezpiecznie w największej społeczności w Polsce.
-          </p>
           
-      
+          <p className="text-lg md:text-xl text-gray-500 font-medium mb-12 max-w-2xl leading-relaxed">
+            Odkrywaj fascynujący świat terrarystyki. Kupuj i sprzedawaj bezpiecznie w największej i najnowocześniejszej społeczności w Polsce.
+          </p>
         </div>
       </section>
 
-      {/* --- STREFA VIP (POTĘŻNY CIEMNY PANEL) --- */}
+      {/* --- STREFA VIP (CIEMNY PANEL) --- */}
       {featuredListings.length > 0 && (
-        <section className="max-w-[1400px] mx-auto px-4 md:px-8 -mt-16 relative z-20 mb-20">
-          <div className="bg-gray-900 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-gray-800 relative overflow-hidden">
-            
-            {/* Abstrakcyjny Glow w tle panelu */}
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[800px] h-[300px] bg-amber-500/15 blur-[100px] rounded-full pointer-events-none"></div>
+        <section className="max-w-[1400px] mx-auto px-4 md:px-8 -mt-20 relative z-40 mb-20">
+          <div className="bg-gray-950 rounded-[2.5rem] md:rounded-[3rem] p-6 md:p-10 shadow-[0_30px_60px_rgba(0,0,0,0.4)] border border-gray-800 relative overflow-hidden group">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-[800px] h-[300px] bg-gradient-to-r from-amber-600/20 to-orange-500/20 blur-[100px] rounded-full pointer-events-none group-hover:opacity-100 opacity-70 transition-opacity duration-700"></div>
             
             <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
               <div>
-                <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
-                  <span className="text-amber-400 text-3xl animate-pulse">★</span> Oferty Premium
+                <h2 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3 tracking-tight">
+                  <span className="text-amber-400 text-3xl animate-pulse drop-shadow-[0_0_15px_rgba(251,191,36,0.5)]">★</span> Oferty Premium
                 </h2>
                 <p className="text-gray-400 font-medium mt-2 max-w-md leading-relaxed">
-                  Wyselekcjonowane ogłoszenia od sprawdzonych hodowców. Złap najlepsze okazje.
+                  Wyselekcjonowane ogłoszenia od zweryfikowanych hodowców. Złap najlepsze okazje.
                 </p>
               </div>
-              <Link href="/szukaj" className="text-amber-400 hover:text-amber-300 bg-white/5 hover:bg-white/10 px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 backdrop-blur-md border border-white/10">
-                Zobacz wszystkie <span className="text-lg">➔</span>
+              <Link href="/szukaj" className="text-amber-400 hover:text-amber-300 bg-white/5 hover:bg-white/10 px-6 py-3 rounded-2xl font-bold text-sm transition-all flex items-center gap-2 backdrop-blur-md border border-white/10 hover:border-amber-400/30 shadow-lg">
+                Zobacz wszystkie <span className="text-lg transform group-hover:translate-x-1 transition-transform">➔</span>
               </Link>
             </div>
 
-            {/* Slider z ujemnymi marginesami dla gładkiego przewijania */}
             <div className="relative z-10 flex gap-5 overflow-x-auto pb-6 pt-2 custom-scrollbar snap-x snap-mandatory hide-scrollbar -mx-6 px-6 md:-mx-10 md:px-10">
               {featuredListings.map(ad => <FeaturedAdCard key={ad.id} item={ad} />)}
             </div>
-            
           </div>
         </section>
       )}
 
-      {/* --- KATEGORIE (CZYSTY GRID) --- */}
+      {/* --- KATEGORIE (GRID) --- */}
       <section className="max-w-6xl mx-auto px-4 md:px-6 mb-24">
-        <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-8">
-          Przeglądaj kategorie
-        </h2>
+        <div className="flex justify-between items-end mb-8">
+          <h2 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight">
+            Przeglądaj działy
+          </h2>
+        </div>
         
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
           {mainCategories.map(cat => {
-            const style = categoryStyles[cat.name] || { icon: '🦎', bg: 'bg-gray-50', color: 'text-gray-600' };
+            const style = categoryStyles[cat.name] || { icon: '🦎', bg: 'bg-gray-50', color: 'text-gray-600', border: 'hover:border-gray-200' };
             
             return (
               <Link 
                 key={cat.id} 
-                href={`/szukaj?category=${encodeURIComponent(cat.name)}`}
-                className="bg-white rounded-[2rem] p-6 flex flex-col items-center justify-center text-center shadow-sm hover:shadow-xl border border-gray-100 hover:border-transparent transition-all duration-300 group"
+                href={`/kategoria/${encodeURIComponent(cat.name.toLowerCase())}`}
+                className={`bg-white rounded-[2rem] p-6 flex flex-col items-center justify-center text-center shadow-[0_4px_20px_rgba(0,0,0,0.03)] hover:shadow-[0_10px_40px_rgba(0,0,0,0.08)] border border-gray-100 ${style.border} transition-all duration-500 group hover:-translate-y-1 relative overflow-hidden`}
               >
-                <div className={`w-20 h-20 ${style.bg} rounded-full flex items-center justify-center mb-5 group-hover:scale-110 transition-transform duration-500 ease-out`}>
-                  <span className="text-4xl">
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-50/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+
+                <div className={`relative z-10 w-20 h-20 ${style.bg} rounded-2xl flex items-center justify-center mb-5 group-hover:scale-110 group-hover:rotate-3 transition-all duration-500 ease-out shadow-sm`}>
+                  <span className="text-4xl drop-shadow-sm">
                     {style.icon}
                   </span>
                 </div>
-                <span className="font-bold text-gray-900 text-base group-hover:text-green-600 transition-colors">
+                <span className={`relative z-10 font-black text-gray-800 text-base md:text-lg ${style.color} transition-colors tracking-tight`}>
                   {cat.name}
                 </span>
               </Link>
@@ -185,23 +262,96 @@ export default function Home() {
         </div>
       </section>
 
-      {/* --- NAJNOWSZE OGŁOSZENIA (GRID) --- */}
+      {/* --- DYNAMICZNE, LOSOWE PASKI KATEGORII --- */}
+      {randomStrips.map((strip, idx) => (
+        <section key={idx} className="max-w-[1400px] mx-auto px-4 md:px-8 mb-20">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight flex items-center gap-2">
+                <span className="text-3xl">{categoryStyles[strip.category]?.icon || '✨'}</span>
+                Odkryj sekcję: <span className="text-green-600">{strip.category}</span>
+              </h2>
+              <p className="text-gray-500 font-medium mt-1">Wybrane oferty z dużą uwagą na wysoko oceniane hodowle.</p>
+            </div>
+            <Link href={`/kategoria/${encodeURIComponent(strip.category.toLowerCase())}`} className="text-sm font-bold text-gray-600 bg-white border border-gray-200 px-5 py-2.5 rounded-xl hover:text-black hover:border-black transition-all flex items-center gap-2 w-max">
+              Więcej z tego działu <span>➔</span>
+            </Link>
+          </div>
+
+          <div className="flex gap-5 overflow-x-auto pb-6 pt-2 custom-scrollbar snap-x snap-mandatory hide-scrollbar -mx-4 px-4 md:-mx-4 md:px-4">
+            {strip.listings.map(ad => (
+              <Link 
+                key={ad.id} 
+                href={`/ogloszenie/${ad.id}`} 
+                className="w-60 md:w-[280px] shrink-0 snap-start group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-col relative"
+              >
+                <div className="w-full aspect-[4/3] bg-gray-50 relative overflow-hidden shrink-0 border-b border-gray-100">
+                  {ad.image_url ? (
+                    <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
+                  ) : (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-100/50">
+                      <span className="text-4xl mb-1">📸</span>
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
+                  
+                  {ad.seller?.is_verified_seller && (
+                    <div className="absolute top-3 left-3 bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-black px-2 py-1 rounded-md uppercase shadow-sm flex items-center gap-1 z-10">
+                      <svg className="w-3 h-3 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                      Zweryfikowany
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-5 flex flex-col flex-1 min-w-0 bg-white relative z-10">
+                  <div className="mb-2 flex flex-wrap gap-2 items-center">
+                    {ad.condition && (
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-md truncate ${ad.condition === 'new' ? 'bg-gray-100 text-gray-600' : 'bg-orange-50 text-orange-600'}`}>
+                        {ad.condition === 'new' ? 'Nowy' : ad.condition === 'used' ? 'Używany' : 'Uszk.'}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <h3 className="text-base font-bold text-gray-900 leading-snug mb-1 group-hover:text-green-600 transition-colors line-clamp-2 break-words">
+                    {ad.title}
+                  </h3>
+                  
+                  <div className="mt-auto pt-3 flex items-center gap-1.5 text-gray-400 text-xs">
+                    <span className="shrink-0">📍</span> 
+                    <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
+                  </div>
+
+                  <div className="pt-3 mt-3 border-t border-gray-100 flex justify-between items-end">
+                    <p className="text-xl font-black text-gray-900 leading-none truncate tracking-tight">
+                      {ad.price} <span className="text-xs text-gray-400 font-bold">PLN</span>
+                    </p>
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {/* --- OSTATNIO DODANE (ZAAWANSOWANY GRID Z LOSOWANIEM) --- */}
       <section className="max-w-6xl mx-auto px-4 md:px-6">
         <div className="flex justify-between items-end mb-10">
           <div>
-            <h2 className="text-2xl md:text-3xl font-black text-gray-900 mb-2">
-              Świeżo dodane
+            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-2 tracking-tight">
+              Katalog okazów
             </h2>
-            <p className="text-gray-500 font-medium hidden md:block text-lg">Odkryj najnowsze okazy na giełdzie.</p>
+            <p className="text-gray-500 font-medium hidden md:block text-lg">Mieszanka najciekawszych ogłoszeń z całej giełdy.</p>
           </div>
-          <Link href="/szukaj" className="text-sm font-black text-gray-900 bg-white border border-gray-200 px-6 py-3 rounded-full hover:border-black hover:shadow-md transition-all flex items-center gap-2">
-            Wszystkie <span className="hidden md:inline">ogłoszenia</span> ➔
+          <Link href="/szukaj" className="text-sm font-black text-gray-900 bg-white border-2 border-gray-100 px-6 py-3 rounded-2xl hover:border-black hover:shadow-lg transition-all duration-300 flex items-center gap-2 group">
+            Wszystkie <span className="hidden md:inline">oferty</span> 
+            <span className="transform group-hover:translate-x-1 transition-transform">➔</span>
           </Link>
         </div>
 
         {recentListings.length === 0 ? (
-          <div className="bg-white p-12 rounded-[2.5rem] border border-gray-100 text-center shadow-sm">
-            <p className="text-gray-500 font-medium">Brak aktywnych ogłoszeń.</p>
+          <div className="bg-white p-16 rounded-[3rem] border border-gray-100 text-center shadow-sm">
+            <span className="text-6xl mb-4 block opacity-20">📭</span>
+            <p className="text-gray-500 font-medium text-lg">Brak aktywnych ogłoszeń w tym momencie.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
@@ -209,39 +359,37 @@ export default function Home() {
               <Link 
                 key={ad.id} 
                 href={`/ogloszenie/${ad.id}`} 
-                className="group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-2xl hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-row md:flex-col relative shadow-sm"
+                className="group bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-[0_20px_50px_rgba(0,0,0,0.08)] hover:border-gray-200 hover:-translate-y-2 transition-all duration-500 flex flex-row md:flex-col relative"
               >
                 {/* ZDJĘCIE */}
-                <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-50 relative overflow-hidden shrink-0">
+                <div className="w-36 sm:w-48 md:w-full aspect-square bg-gray-50 relative overflow-hidden shrink-0 border-r md:border-r-0 md:border-b border-gray-100">
                   {ad.image_url ? (
                     <img src={ad.image_url} alt={ad.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out" />
                   ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 bg-gray-100/50">
                       <span className="text-4xl mb-1">📸</span>
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
+                  
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 hidden md:block"></div>
                   
                   {ad.cites_certificate && (
-                    <div className="absolute top-3 left-3 bg-blue-600/90 backdrop-blur-sm text-white text-[9px] font-black px-2.5 py-1 rounded-md uppercase shadow-lg flex items-center gap-1 z-10">
+                    <div className="absolute top-3 left-3 bg-blue-600/95 backdrop-blur-md text-white text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase shadow-lg flex items-center gap-1 z-10 border border-white/20">
                       <span>📜</span> CITES
                     </div>
                   )}
                 </div>
 
                 {/* TREŚĆ KARTY */}
-                <div className="p-4 md:p-6 flex flex-col flex-1 min-w-0">
+                <div className="p-4 md:p-6 flex flex-col flex-1 min-w-0 bg-white relative z-10">
                   
                   {/* TAGI: Kategoria i Stan */}
                   <div className="mb-3 flex flex-wrap gap-2 items-center">
-                    <span className="text-[10px] font-black uppercase text-green-600 tracking-widest truncate max-w-[120px]">
+                    <span className="text-[10px] font-black uppercase text-green-600 tracking-widest truncate max-w-[120px] bg-green-50 px-2 py-1 rounded-md">
                       {ad.category}
                     </span>
                     {ad.condition && (
-                      <span className="text-gray-300 mx-1">•</span>
-                    )}
-                    {ad.condition && (
-                      <span className={`text-[10px] font-bold uppercase truncate ${ad.condition === 'new' ? 'text-gray-500' : 'text-orange-500'}`}>
+                      <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-md truncate ${ad.condition === 'new' ? 'bg-gray-100 text-gray-600' : 'bg-orange-50 text-orange-600'}`}>
                         {ad.condition === 'new' ? 'Nowy' : ad.condition === 'used' ? 'Używany' : 'Uszk.'}
                       </span>
                     )}
@@ -254,23 +402,23 @@ export default function Home() {
                   
                   {/* NAZWA ŁACIŃSKA */}
                   {ad.species?.latin_name && (
-                    <p className="text-xs text-gray-400 italic mb-3 truncate">
+                    <p className="text-[11px] text-gray-400 italic mb-3 truncate font-medium">
                       {ad.species.latin_name}
                     </p>
                   )}
                   
                   {/* LOKALIZACJA */}
-                  <div className="mt-auto pt-2 flex items-center gap-1.5 text-gray-400 text-xs">
+                  <div className="mt-auto pt-3 flex items-center gap-1.5 text-gray-400 text-xs">
                     <span className="shrink-0">📍</span> 
                     <span className="truncate font-medium">{ad.seller?.store_address || 'Polska'}</span>
                   </div>
 
                   {/* CENA */}
-                  <div className="pt-3 mt-3 border-t border-gray-50 flex justify-between items-end">
-                    <p className="text-xl md:text-2xl font-black text-gray-900 leading-none truncate">
+                  <div className="pt-3 mt-3 border-t border-gray-100 flex justify-between items-end">
+                    <p className="text-xl md:text-2xl font-black text-gray-900 leading-none truncate tracking-tight">
                       {ad.price} <span className="text-xs md:text-sm text-gray-400 font-bold">PLN</span>
                     </p>
-                    <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition-colors duration-300 hidden md:flex">
+                    <div className="w-8 h-8 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center group-hover:bg-black group-hover:border-black group-hover:text-white transition-all duration-300 hidden md:flex shadow-sm">
                       <span className="font-bold text-sm transform -rotate-45">➔</span>
                     </div>
                   </div>
@@ -282,7 +430,6 @@ export default function Home() {
         )}
       </section>
 
-      {/* Poprawka składni React (dangerouslySetInnerHTML) */}
       <style dangerouslySetInnerHTML={{ __html: `
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import crypto from 'crypto'; // Zamiast stripe dodajemy crypto do HotPaya
+import crypto from 'crypto';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,30 +10,27 @@ const supabaseAdmin = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { userId, packageId, isSubscriptionChoice } = body; 
+    const { userId, packageId, updateType } = body;
 
     if (!userId || !packageId) {
       return NextResponse.json({ error: 'Brakujące dane' }, { status: 400 });
     }
 
+    // 1. Bezpieczne pobranie cennika z bazy
     const { data: allPlans } = await supabaseAdmin.from('pricing_plans').select('*');
     const { data: profile } = await supabaseAdmin.from('profiles').select('max_active_listings').eq('id', userId).single();
-    
+
     const selectedPackage = allPlans?.find(p => p.id === packageId);
     const currentLimit = profile?.max_active_listings || 2;
 
     if (!selectedPackage) return NextResponse.json({ error: 'Nie znaleziono pakietu' }, { status: 404 });
 
-    // --- MATEMATYKA DOPŁAT I BAGAŻU (Zostaje nietknięta!) ---
+    // --- MATEMATYKA DOPŁAT I ZNIŻEK ---
     let finalPricePln = selectedPackage.price_pln;
     let isUpgrade = false;
 
     const ownedPlans = allPlans!.filter(p => p.id !== 'single' && p.listing_limit <= currentLimit);
-    const maxOwnedLimit = ownedPlans.reduce((max, p) => Math.max(max, p.listing_limit), 2); 
     const maxOwnedValue = ownedPlans.reduce((max, p) => Math.max(max, p.price_pln), 0);
-
-    const extraListings = Math.max(0, currentLimit - maxOwnedLimit);
-    const targetLimit = packageId === 'single' ? selectedPackage.listing_limit : selectedPackage.listing_limit + extraListings;
 
     if (packageId !== 'single') {
       if (selectedPackage.price_pln > maxOwnedValue && maxOwnedValue > 0) {
@@ -42,37 +39,54 @@ export async function POST(req: Request) {
       }
     }
 
-    if (finalPricePln < 100) return NextResponse.json({ error: 'Błąd kalkulacji zniżki lub cena za niska' }, { status: 400 });
+    if (finalPricePln <= 0) return NextResponse.json({ error: 'Błąd kalkulacji ceny' }, { status: 400 });
 
-    // --- NOWOŚĆ: INTEGRACJA Z HOTPAY ---
+    const kwota = (finalPricePln / 100).toFixed(2);
+
+    // 2. TWORZENIE ZAMÓWIENIA W BAZIE (Serwer to robi, nikt tego nie oszuka!)
+    const { data: order, error: orderError } = await supabaseAdmin.from('orders').insert([{
+        user_id: userId,
+        total_amount: parseFloat(kwota),
+        status: 'pending_payment',
+        payment_provider: 'hotpay',
+        new_limit: packageId === 'single' ? 1 : selectedPackage.listing_limit, 
+        update_type: updateType, // 'add' lub 'replace'
+        package_id: packageId
+    }]).select().single();
+
+    if (orderError) throw orderError;
+
+    // 3. GENEROWANIE LINKU DO BANKU HOTPAY
     const sekret = process.env.HOTPAY_SECRET;
     const haslo = process.env.HOTPAY_PASSWORD;
 
-    if (!sekret || !haslo) {
-      throw new Error("Brak kluczy HotPay na serwerze Vercel");
-    }
+    if (!sekret || !haslo) throw new Error("Brak kluczy HotPay w .env.local");
 
-    // Stripe używa groszy (np. 1500), HotPay używa złotówek (np. "15.00")
-    const kwota = (finalPricePln / 100).toFixed(2);
+    const czystySekret = sekret.trim();
+    const czysteHaslo = haslo.trim();
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/$/, "");
+
     const nazwa_uslugi = isUpgrade ? `Dopłata (Upgrade): ${selectedPackage.name}` : selectedPackage.name;
-    
-    // Tworzymy unikalne ID zamówienia dla tego pakietu (np. PKG_abc12_vip)
-    const orderId = `PKG_${userId.slice(0, 5)}_${packageId}`;
-    
-    // Adres, na który bank wyrzuci klienta po zapłacie
-    const adres_www = `${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/dodaj-ogloszenie?success=true`;
+    const adres_www = `${siteUrl}/dodaj-ogloszenie?success=true`; // Powrót po zapłacie
 
-    // Budujemy Hash dla bezpieczeństwa
-    const stringToHash = `${haslo};${kwota};${nazwa_uslugi};${adres_www};${orderId};${sekret}`;
+    const stringToHash = `${czysteHaslo};${kwota};${nazwa_uslugi};${adres_www};${order.id};${czystySekret}`;
     const hash = crypto.createHash('sha256').update(stringToHash).digest('hex');
 
-    // Generujemy link do banku
-    const paymentUrl = `https://platnosc.hotpay.pl/?SEKRET=${sekret}&KWOTA=${kwota}&NAZWA_USLUGI=${encodeURIComponent(nazwa_uslugi)}&ADRES_WWW=${encodeURIComponent(adres_www)}&ID_ZAMOWIENIA=${orderId}&HASH=${hash}`;
+    const params = new URLSearchParams({
+      SEKRET: czystySekret,
+      KWOTA: kwota,
+      NAZWA_USLUGI: nazwa_uslugi,
+      ADRES_WWW: adres_www,
+      ID_ZAMOWIENIA: order.id,
+      HASH: hash
+    });
+
+    const paymentUrl = `https://platnosc.hotpay.pl/?${params.toString()}`;
 
     return NextResponse.json({ url: paymentUrl });
-    
+
   } catch (err: any) {
-    console.error('❌ BŁĄD HOTPAY:', err);
+    console.error('BŁĄD ZAKUPU PAKIETU:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

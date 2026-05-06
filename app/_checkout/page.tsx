@@ -150,91 +150,41 @@ export default function Checkout() {
     setIsProcessing(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const totalAmount = calculateTotal();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) throw new Error("Musisz być zalogowany");
 
-      // 1. Zapisujemy "Szkic" zamówienia w bazie (tabela orders)
-      const { data: order, error: orderError } = await supabase.from('orders').insert([{
-        user_id: user?.id,
-        total_amount: totalAmount,
-        shipping_details: {
-           address: shippingData,
-           methods: selectedMethods,
-           lockers: selectedLockerIds
-        },
-        payment_provider: 'hotpay',
-        status: 'pending_payment'
-      }]).select().single();
-
-      if (orderError) throw orderError;
-
-    // ---------------------------------------------------------
-      // 1.5. ZAPISUJEMY ZAWARTOŚĆ KOSZYKA (Wersja Kuloodporna)
-      // ---------------------------------------------------------
-      const allItemsToInsert: any[] = [];
-
-      Object.keys(groupedPackages).forEach(sellerId => {
-        const group = groupedPackages[sellerId];
-        
-        group.items.forEach((item: any) => {
-          // 1. Bezpieczne wyciąganie danych (odporne na to, czy Supabase zwraca tablicę, czy obiekt)
-          const listing = Array.isArray(item.listing) ? item.listing[0] : item.listing;
-          const variant = Array.isArray(item.variant) ? item.variant[0] : item.variant;
-          
-          // 2. Szukamy ceny. Jeśli nie ma wariantu, bierzemy z ogłoszenia głównego.
-          const rawPrice = (variant && variant.price) ? variant.price : listing?.price;
-          
-          // 3. Wymuszamy, żeby to była prawdziwa liczba. Jeśli to np. null, dajemy 0.
-          const finalPrice = parseFloat(rawPrice) || 0;
-
-          const payload = {
-            order_id: order.id,
-            listing_id: listing?.id,
-            quantity: item.quantity || 1,
-            price_at_purchase: finalPrice
-          };
-
-          // RENTGEN - Wyświetlamy dokładnie to, co leci do bazy!
-          console.log(`📦 PRÓBA ZAPISU PRODUKTU ${listing?.id}:`, payload);
-          
-          allItemsToInsert.push(payload);
+        // Front oblicza tylko szacunkowy koszt wysyłki (resztę załatwi serwer)
+        let estimatedShippingCost = 0;
+        Object.keys(groupedPackages).forEach(sellerId => {
+            const selectedMethod = selectedMethods[sellerId];
+            estimatedShippingCost += shippingOptionsPerPackage[sellerId]?.methods[selectedMethod]?.price || 0;
         });
-      });
 
-      console.log("🚀 WSZYSTKIE PRZEDMIOTY DO WYSYŁKI:", allItemsToInsert);
+        // 1. Zlecamy czarną robotę naszemu nowemu API! Front jest teraz "głupi" i bezpieczny.
+        const res = await fetch('/api/orders/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                userId: user.id,
+                shippingData,
+                selectedMethods,
+                selectedLockerIds,
+                estimatedShippingCost
+            })
+        });
 
-      if (allItemsToInsert.length > 0) {
-        const { data: insertedData, error: itemsError } = await supabase
-          .from('order_items')
-          .insert(allItemsToInsert)
-          .select(); // Dodajemy .select(), żeby upewnić się, że baza odda nam zapisane wiersze
-          
-        if (itemsError) {
-           console.error("❌ Błąd Supabase (SZCZEGÓŁY):", itemsError);
-           throw new Error(`Błąd bazy: ${itemsError.message}`);
-        }
-      }
-      // ---------------------------------------------------------
+        const data = await res.json();
 
-      // 2. Prosimy nasz serwer o wygenerowanie linku do banku z kryptograficznym Hashem
-      const paymentRes = await fetch('/api/payments/hotpay', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: order.id, amount: totalAmount })
-      });
-      
-      const paymentData = await paymentRes.json();
-      
-      if (paymentData.error) throw new Error(paymentData.error);
+        if (data.error) throw new Error(data.error);
 
-      // 3. Wyrzucamy klienta do okna banku!
-      window.location.href = paymentData.url;
+        // 2. Przekierowanie prosto do banku
+        window.location.href = data.url;
 
     } catch (err: any) {
-      alert("Wystąpił błąd podczas generowania płatności: " + err.message);
-      setIsProcessing(false);
+        alert("Wystąpił błąd: " + err.message);
+        setIsProcessing(false);
     }
-  };
+};
   if (loading) return <div className="p-20 text-center">Inicjalizacja systemu Multi-Vendor Checkout...</div>;
 
   const sellerIds = Object.keys(groupedPackages);

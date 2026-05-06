@@ -72,38 +72,34 @@ export default function Cennik() {
   };
 
   // 🔥 UNIWERSALNA FUNKCJA ZAKUPU (HotPay)
-  const handlePurchase = async (planType: string, calculatedPrice: number, limitToAddOrReplace: number, updateType: 'add' | 'replace') => {
+//   BEZPIECZNA FUNKCJA ZAKUPU (Wysyła tylko ID pakietu)
+  const handlePurchase = async (planType: string, updateType: 'add' | 'replace') => {
     setLoadingPackage(planType);
     
     try {
         if (!user) {
             alert("Musisz być zalogowany, aby kupić pakiet!");
-            return router.push('/rejestracja');
+            router.push('/rejestracja');
+            return;
         }
 
-        const { data: order, error: orderError } = await supabase.from('orders').insert([{
-            user_id: user.id,
-            total_amount: calculatedPrice, 
-            status: 'pending_payment',
-            payment_provider: 'hotpay',
-            new_limit: limitToAddOrReplace,
-            update_type: updateType,
-            package_id: planType
-        }]).select().single();
-
-        if (orderError) throw orderError;
-
-        const paymentRes = await fetch('/api/payments/hotpay', {
+        // Uderzamy do naszego API, które samo wszystko wyliczy
+        const response = await fetch('/api/checkout', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ orderId: order.id, amount: calculatedPrice }) 
+            body: JSON.stringify({ 
+                userId: user.id, 
+                packageId: planType, 
+                updateType: updateType 
+            }) 
         });
         
-        const paymentData = await paymentRes.json();
+        const data = await response.json();
         
-        if (paymentData.error) throw new Error(paymentData.error);
-
-        window.location.href = paymentData.url;
+        if (data.error) throw new Error(data.error);
+        
+        // Bezpieczne przekierowanie do HotPay
+        window.location.href = data.url;
 
     } catch (err: any) {
         alert("Wystąpił błąd podczas generowania płatności: " + err.message);
@@ -225,10 +221,10 @@ export default function Cennik() {
           <div className="text-right shrink-0 relative z-10">
             <div className="text-2xl font-black mb-2">{singlePlan.price_pln / 100} zł</div>
             <button 
-              onClick={() => handlePurchase('single', singlePlan.price_pln / 100, 1, 'add')}
-              disabled={loadingPackage !== null}
-              className="bg-white text-black text-sm font-black py-2 px-6 rounded-xl hover:bg-gray-200 transition disabled:opacity-50"
-            >
+                  onClick={() => handlePurchase('single', 'add')}
+                  disabled={loadingPackage !== null}
+                  className="bg-white text-black text-sm font-black py-2 px-6 rounded-xl hover:bg-gray-200 transition disabled:opacity-50"
+                >
               {loadingPackage === 'single' ? 'Ładowanie...' : 'Kup sztukę'}
             </button>
           </div>
@@ -283,16 +279,16 @@ export default function Cennik() {
               </ul>
               
               <button 
-                onClick={() => handlePurchase(plan.id, displayPrice, plan.listing_limit, 'replace')}
-                disabled={loadingPackage !== null || isOwnedOrLower}
-                className={`w-full font-black py-4 rounded-xl transition text-center ${
-                  isOwnedOrLower 
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                    : isUpgrade
-                      ? 'bg-green-500 text-white hover:bg-green-600 shadow-lg'
-                      : 'bg-amber-500 text-black hover:bg-amber-600 shadow-lg'
-                }`}
-              >
+                  onClick={() => handlePurchase(plan.id, 'replace')}
+                  disabled={loadingPackage !== null || isOwnedOrLower}
+                  className={`w-full font-black py-4 rounded-xl transition text-center ${
+                    isOwnedOrLower 
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                      : isUpgrade 
+                        ? 'bg-green-500 text-white hover:bg-green-600 shadow-lg' 
+                        : 'bg-amber-500 text-black hover:bg-amber-600 shadow-lg'
+                  }`}
+                >
                 {isOwnedOrLower ? 'Twój pakiet (lub niższy)' : (loadingPackage === plan.id ? 'Przekierowanie...' : (isUpgrade ? 'Dopłać i Zwiększ' : 'Wybierz Pakiet'))}
               </button>
             </div>
